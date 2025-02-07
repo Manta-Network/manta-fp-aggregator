@@ -3,7 +3,7 @@ manager:
   sdk_rpc: "127.0.0.1:9000"
   ws_addr: "tcp://127.0.0.1:8081"
   sign_timeout: "20s"
-  node_members: "02ba5734d8f7091719471e7f7ed6b9df170dc70cc661ca05e688601ad984f068b0,039d9031e97dd78ff8c15aa86939de9b1e791066a0224e331bc962a2099a7b1f04,0220b871f3ced029e14472ec4ebc3c0448164942b123aa6af91a3386c1c403e0eb"
+  node_members: ""
 
 node:
   level_db_folder: "node_storage1"
@@ -20,5 +20,6 @@ babylon_rpc: "https://rpc-euphrates.devnet.babylonlabs.io:443"
 eth_rpc: "http://127.0.0.1:8545"
 eth_chain_id: 31337
 contracts:
-  frm_contract_address: "0xb9bEECD1A582768711dE1EE7B0A1d582D9d72a6C"
-  bar_contact_address: "0xB82008565FdC7e44609fA118A4a681E92581e680"
+  frm_contract_address: ""
+  bar_contact_address: ""
+  op_finality_gadgat: ""

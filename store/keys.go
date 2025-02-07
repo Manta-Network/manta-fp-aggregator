@@ -20,6 +20,8 @@ var (
 	BTCDelegateAmountKeyPrefix         = []byte{0x13}
 	SelectiveSlashingEvidenceKeyPrefix = []byte{0x14}
 	BabylonDelegationKeyPrefix         = []byte{0x15}
+	SubmitFinalitySignatureKeyPrefix   = []byte{0x16}
+	StakeDetailsKeyPrefix              = []byte{0x17}
 )
 
 func getBabylonBlockHeaderKey(number int64) []byte {
@@ -86,4 +88,14 @@ func getBabylonScannedHeightKey() []byte {
 
 func getActiveMemberKey() []byte {
 	return ActiveMemberKeyPrefix
+}
+
+func getSubmitFinalitySignatureKey(txHash []byte) []byte {
+	return append(SubmitFinalitySignatureKeyPrefix, txHash[:]...)
+}
+
+func getStakeDetailsKey(batchId uint64) []byte {
+	numberBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(numberBz, batchId)
+	return append(StakeDetailsKeyPrefix, numberBz...)
 }

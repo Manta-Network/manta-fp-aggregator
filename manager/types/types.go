@@ -17,6 +17,10 @@ type StakerDelegationRequest struct {
 	Address string `json:"address"`
 }
 
+type StakerDetailsRequest struct {
+	BatchId uint64 `json:"batch_id"`
+}
+
 type NodeSignRequest struct {
 	Timestamp   int64       `json:"timestamp"`
 	Nodes       []string    `json:"nodes"`

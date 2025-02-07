@@ -14,7 +14,7 @@ type CreateBTCDelegation struct {
 	TxHash []byte `json:"tx_hash"`
 }
 
-func (s *Storage) SetCreateBTCDelegationMsg(msg CreateBTCDelegation) error {
+func (s *Storage) SetCreateBTCDelegationMsg(batchId uint64, blockHeight uint64, msg CreateBTCDelegation) error {
 	bz, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -24,6 +24,12 @@ func (s *Storage) SetCreateBTCDelegationMsg(msg CreateBTCDelegation) error {
 	if err != nil {
 		return err
 	}
+
+	err = s.SetStakeDetails(batchId, blockHeight, msg, DelegateType)
+	if err != nil {
+		return err
+	}
+
 	return s.db.Put(getCreateBTCDelegationKey(msg.TxHash), bz, nil)
 }
 

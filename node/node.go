@@ -148,6 +148,10 @@ func (n *Node) work() {
 				n.log.Error("failed to process SelectiveSlashingEvidence msg", "err", err)
 				continue
 			}
+			if err := n.synchronizer.ProcessSubmitFinalitySignature(txMsg); err != nil {
+				n.log.Error("failed to process SubmitFinalitySignature msg", "err", err)
+				continue
+			}
 		}
 	}
 }
@@ -346,74 +350,12 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 
 func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
 	var bSign *sign.Signature
-	switch requestBody.TxType {
-	case common3.MsgCreateFinalityProvider:
-		exist, cFP := n.db.GetCreateFinalityProviderMsg(requestBody.TxHash)
+	if requestBody.TxType == common3.MsgSubmitFinalitySignatureType {
+		exist, sFS := n.db.GetSubmitFinalitySignatureMsg(requestBody.TxHash)
 		if exist {
-			bCFP, err := cFP.FP.Marshal()
-			if err != nil {
-				n.log.Error("failed to marshal FinalityProviderMsg", "err", err)
-				return nil, err
-			}
-			byteData := crypto.Keccak256Hash(bCFP)
+			byteData := crypto.Keccak256Hash(sFS.SFSByte)
 			bSign = n.keyPairs.SignMessage(byteData)
-			n.log.Info("success to sign FinalityProviderMsg", "signature", bSign.String())
-		} else {
-			return nil, nil
-		}
-	case common3.MsgCreateBTCDelegation:
-		exist, cBD := n.db.GetCreateBTCDelegationMsg(requestBody.TxHash)
-		if exist {
-			bCBD, err := cBD.CBD.Marshal()
-			if err != nil {
-				n.log.Info("failed to marshal CreateBTCDelegationMsg", "err", err)
-				return nil, err
-			}
-			byteData := crypto.Keccak256Hash(bCBD)
-			bSign = n.keyPairs.SignMessage(byteData)
-			n.log.Info("success to sign CreateBTCDelegationMsg", "signature", bSign.String())
-		} else {
-			return nil, nil
-		}
-	case common3.MsgCommitPubRandList:
-		exist, cPR := n.db.GetCommitPubRandListMsg(requestBody.TxHash)
-		if exist {
-			bCPR, err := cPR.CPR.Marshal()
-			if err != nil {
-				n.log.Info("failed to marshal CommitPubRandListMsg", "err", err)
-				return nil, err
-			}
-			byteData := crypto.Keccak256Hash(bCPR)
-			bSign = n.keyPairs.SignMessage(byteData)
-			n.log.Info("success to sign CommitPubRandListMsg", "signature", bSign.String())
-		} else {
-			return nil, nil
-		}
-	case common3.MsgBTCUndelegate:
-		exist, bU := n.db.GetBtcUndelegateMsg(requestBody.TxHash)
-		if exist {
-			bBU, err := bU.BU.Marshal()
-			if err != nil {
-				n.log.Info("failed to marshal BtcUndelegateMsg", "err", err)
-				return nil, err
-			}
-			byteData := crypto.Keccak256Hash(bBU)
-			bSign = n.keyPairs.SignMessage(byteData)
-			n.log.Info("success to sign BtcUndelegateMsg", "signature", bSign.String())
-		} else {
-			return nil, nil
-		}
-	case common3.MsgSelectiveSlashingEvidence:
-		exist, sSE := n.db.GetSelectiveSlashingEvidenceMsg(requestBody.TxHash)
-		if exist {
-			bSSE, err := sSE.SSE.Marshal()
-			if err != nil {
-				n.log.Info("failed to marshal SelectiveSlashingEvidenceMsg", "err", err)
-				return nil, err
-			}
-			byteData := crypto.Keccak256Hash(bSSE)
-			bSign = n.keyPairs.SignMessage(byteData)
-			n.log.Info("success to sign SelectiveSlashingEvidenceMsg", "signature", bSign.String())
+			n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 		} else {
 			return nil, nil
 		}
@@ -467,7 +409,7 @@ func registerOperator(ctx context.Context, cfg *config.Config, priKey *ecdsa.Pri
 		From:        nodeAddr,
 	}
 
-	msg, err := bar.PubkeyRegistrationMessageHash(cOpts, nodeAddr)
+	msg, err := bar.GetPubkeyRegMessageHash(cOpts, nodeAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PubkeyRegistrationMessageHash, err: %v", err)
 	}

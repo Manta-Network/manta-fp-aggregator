@@ -86,6 +86,38 @@ func (registry *Registry) StakerDelegationHandler() gin.HandlerFunc {
 	}
 }
 
+func (registry *Registry) StakerDetailsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request types.StakerDetailsRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, errors.New("invalid request body"))
+			return
+		}
+		if request.BatchId <= 0 {
+			c.JSON(http.StatusBadRequest, errors.New("invalid request batch_id"))
+			return
+		}
+		var result store.StakeDetails
+		var err error
+
+		result, err = registry.db.GetStakeDetails(request.BatchId)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "failed to get staker details")
+			log.Error("failed to get staker details", "error", err)
+			return
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "failed to marshal staker details")
+			log.Error("failed to marshal staker details", "error", err)
+			return
+		}
+		if _, err = c.Writer.Write(data); err != nil {
+			log.Error("failed to write staker details to response writer", "error", err)
+		}
+	}
+}
+
 func (registry *Registry) PrometheusHandler() gin.HandlerFunc {
 	h := promhttp.InstrumentMetricHandler(
 		prometheus.DefaultRegisterer, promhttp.HandlerFor(

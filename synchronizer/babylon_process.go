@@ -47,7 +47,7 @@ func (syncer *BabylonSynchronizer) ProcessCreateBTCDelegation(txMessage store.Tx
 			syncer.log.Error("failed to new btc transaction", "err", err)
 			return err
 		}
-		err = syncer.db.SetCreateBTCDelegationMsg(store.CreateBTCDelegation{
+		err = syncer.db.SetCreateBTCDelegationMsg(0, txMessage.BlockHeight, store.CreateBTCDelegation{
 			CBD:    mCBD,
 			TxHash: txMessage.TransactionHash,
 		})
@@ -91,7 +91,7 @@ func (syncer *BabylonSynchronizer) ProcessBTCUndelegate(txMessage store.TxMessag
 
 	if txMessage.Type == common.MsgBTCUndelegate {
 		mBUD.Unmarshal(txMessage.Data)
-		err = syncer.db.SetBtcUndelegateMsg(store.BtcUndelegate{
+		err = syncer.db.SetBtcUndelegateMsg(0, txMessage.BlockHeight, store.BtcUndelegate{
 			BU:     mBUD,
 			TxHash: txMessage.TransactionHash,
 		})
@@ -120,6 +120,27 @@ func (syncer *BabylonSynchronizer) ProcessSelectiveSlashingEvidence(txMessage st
 			return err
 		}
 		syncer.log.Info("success to store SelectiveSlashingEvidenc message", "tx_hash", hexutil.Encode(txMessage.TransactionHash))
+	}
+
+	return nil
+}
+
+func (syncer *BabylonSynchronizer) ProcessSubmitFinalitySignature(txMessage store.TxMessage) error {
+	var err error
+	var mSFS store.SubmitFinalitySignatureMsgValue
+
+	if txMessage.Type == common.MsgSubmitFinalitySignatureType {
+		mSFS.Unmarshal(txMessage.Data)
+		err = syncer.db.SetSubmitFinalitySignatureMsg(store.SubmitFinalitySignature{
+			SFS:     mSFS,
+			SFSByte: txMessage.Data,
+			TxHash:  txMessage.TransactionHash,
+		})
+		if err != nil {
+			syncer.log.Error("failed to store SubmitFinalitySignature message", "err", err)
+			return err
+		}
+		syncer.log.Info("success to store SubmitFinalitySignature message", "tx_hash", hexutil.Encode(txMessage.TransactionHash))
 	}
 
 	return nil

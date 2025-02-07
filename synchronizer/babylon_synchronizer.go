@@ -27,20 +27,23 @@ var validMsgTypes = map[string]bool{
 	"/babylon.btcstaking.v1.MsgSelectiveSlashingEvidence": true,
 }
 
+var ContractMsgType = "/cosmwasm.wasm.v1.MsgExecuteContract"
+
 type BabylonSynchronizer struct {
-	client            *http.HTTP
-	db                *store.Storage
-	headers           []types2.Header
-	latestHeader      *types2.Header
-	headerTraversal   *node.BabylonHeaderTraversal
-	blockStep         uint64
-	startHeight       *big.Int
-	confirmationDepth *big.Int
-	resourceCtx       context.Context
-	resourceCancel    context.CancelFunc
-	tasks             tasks.Group
-	log               log.Logger
-	txMsgChan         chan store.TxMessage
+	client               *http.HTTP
+	db                   *store.Storage
+	headers              []types2.Header
+	latestHeader         *types2.Header
+	headerTraversal      *node.BabylonHeaderTraversal
+	opFinalityGadgetAddr string
+	blockStep            uint64
+	startHeight          *big.Int
+	confirmationDepth    *big.Int
+	resourceCtx          context.Context
+	resourceCancel       context.CancelFunc
+	tasks                tasks.Group
+	log                  log.Logger
+	txMsgChan            chan store.TxMessage
 }
 
 func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, txMsgChan chan store.TxMessage) (*BabylonSynchronizer, error) {
@@ -78,15 +81,16 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 
 	resCtx, resCancel := context.WithCancel(context.Background())
 	return &BabylonSynchronizer{
-		client:          cli,
-		blockStep:       cfg.BabylonBlockStep,
-		headerTraversal: headerTraversal,
-		latestHeader:    fromHeader,
-		db:              db,
-		resourceCtx:     resCtx,
-		resourceCancel:  resCancel,
-		log:             logger,
-		txMsgChan:       txMsgChan,
+		client:               cli,
+		blockStep:            cfg.BabylonBlockStep,
+		headerTraversal:      headerTraversal,
+		latestHeader:         fromHeader,
+		db:                   db,
+		resourceCtx:          resCtx,
+		resourceCancel:       resCancel,
+		opFinalityGadgetAddr: cfg.Contracts.OpFinalityGadgat,
+		log:                  logger,
+		txMsgChan:            txMsgChan,
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in Synchronizer: %w", err))
 		}},
@@ -174,10 +178,22 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 					}
 					txMessages = append(txMessages, txMessage)
 					syncer.txMsgChan <- txMessage
+				} else if msg.TypeUrl == ContractMsgType {
+					var sMsg store.SubmitFinalitySignatureMsgValue
+					sMsg.Unmarshal(msg.Value)
+					if sMsg.Contract == syncer.opFinalityGadgetAddr && sMsg.StateRoot != nil {
+						txMessage := store.TxMessage{
+							BlockHeight:     uint64(block.Block.Height),
+							TransactionHash: transaction.Hash(),
+							Type:            "/MsgSubmitFinalitySignature",
+							Data:            msg.Value,
+							Timestamp:       time.Now().Unix(),
+						}
+						txMessages = append(txMessages, txMessage)
+						syncer.txMsgChan <- txMessage
+					}
 				}
-
 			}
-
 		}
 	}
 

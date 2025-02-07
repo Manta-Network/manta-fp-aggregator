@@ -5,8 +5,8 @@ LDFLAGSSTRING +=-X main.GitCommit=$(GITCOMMIT)
 LDFLAGSSTRING +=-X main.GitDate=$(GITDATE)
 LDFLAGS := -ldflags "$(LDFLAGSSTRING)"
 
-FinalityRelayerManagerAbiPath := ./l2fp-contracts/out/FinalityRelayerManager.sol/FinalityRelayerManager.json
-BLSApkRegistryAbiPath := ./l2fp-contracts/out/BLSApkRegistry.sol/BLSApkRegistry.json
+FinalityRelayerManagerAbiPath := ./manta-fp-contracts/out/FinalityRelayerManager.sol/FinalityRelayerManager.json
+BLSApkRegistryAbiPath := ./manta-fp-contracts/out/BLSApkRegistry.sol/BLSApkRegistry.json
 
 
 build:

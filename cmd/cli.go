@@ -35,7 +35,7 @@ var (
 var (
 	ConfigFlag = &cli.StringFlag{
 		Name:    "config",
-		Value:   "./l2fp-aggregator.yaml",
+		Value:   "./manta-fp-aggregator.yaml",
 		Aliases: []string{"c"},
 		Usage:   "path to config file",
 		EnvVars: []string{"FP_AGGREGATOR_CONFIG"},

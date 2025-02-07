@@ -11,7 +11,7 @@ type BtcUndelegate struct {
 	TxHash []byte `json:"tx_hash"`
 }
 
-func (s *Storage) SetBtcUndelegateMsg(msg BtcUndelegate) error {
+func (s *Storage) SetBtcUndelegateMsg(batchId uint64, blockHeight uint64, msg BtcUndelegate) error {
 	bz, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -23,6 +23,10 @@ func (s *Storage) SetBtcUndelegateMsg(msg BtcUndelegate) error {
 	exist, cBD := s.GetCreateBTCDelegationMsg(key)
 	if exist {
 		err = s.setBTCUnDelegateAmount([]byte(cBD.CBD.StakerAddr), uint64(cBD.CBD.StakingValue))
+		if err != nil {
+			return err
+		}
+		err = s.SetStakeDetails(batchId, blockHeight, cBD, UndelegateType)
 		if err != nil {
 			return err
 		}
