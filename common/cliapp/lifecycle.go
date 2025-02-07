@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Manta-Network/manta-fp-aggregator/common/opio"
-
 	"github.com/urfave/cli/v2"
+
+	"github.com/Manta-Network/manta-fp-aggregator/common/opio"
 )
 
 type Lifecycle interface {

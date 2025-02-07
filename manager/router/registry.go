@@ -6,13 +6,12 @@ import (
 	"net/http"
 
 	"github.com/ethereum/go-ethereum/log"
-
-	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
-	"github.com/Manta-Network/manta-fp-aggregator/store"
-
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
+	"github.com/Manta-Network/manta-fp-aggregator/store"
 )
 
 type Registry struct {

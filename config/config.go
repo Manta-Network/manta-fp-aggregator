@@ -1,7 +1,7 @@
 package config
 
 import (
-	"io/ioutil"
+	"os"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -67,7 +67,7 @@ func DefaultConfiguration() *Config {
 
 func NewConfig(path string) (*Config, error) {
 	var config = new(Config)
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

@@ -13,7 +13,6 @@ var (
 )
 
 func main() {
-
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
 	app := newCli(GitCommit, GitDate)
 	if err := app.RunContext(context.Background(), os.Args); err != nil {

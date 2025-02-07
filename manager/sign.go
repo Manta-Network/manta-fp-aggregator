@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
+	tmjson "github.com/tendermint/tendermint/libs/json"
+	tmtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/node/common"
 	"github.com/Manta-Network/manta-fp-aggregator/sign"
 	"github.com/Manta-Network/manta-fp-aggregator/ws/server"
-
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	tmtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
 func (m *Manager) sign(ctx types.Context, request interface{}, method types.Method) (types.SignResult, error) {

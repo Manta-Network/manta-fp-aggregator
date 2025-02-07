@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/urfave/cli/v2"
 
 	"github.com/Manta-Network/manta-fp-aggregator/common/cliapp"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
@@ -21,8 +21,6 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/sign"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 	"github.com/Manta-Network/manta-fp-aggregator/ws/server"
-
-	"github.com/urfave/cli/v2"
 )
 
 var (
@@ -122,7 +120,7 @@ func runNode(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecyc
 		privKeyPath := cfg.Node.KeyPath + "/" + DefaultPrivKeyFilename
 		pubKeyPath := cfg.Node.KeyPath + "/" + DefaultPubKeyFilename
 		if _, err := os.Stat(privKeyPath); err == nil {
-			privKeyData, err := ioutil.ReadFile(privKeyPath)
+			privKeyData, err := os.ReadFile(privKeyPath)
 			if err != nil {
 				return nil, err
 			}
