@@ -17,7 +17,6 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
 	github.com/tendermint/tendermint v0.34.16
 	github.com/urfave/cli/v2 v2.25.7
-	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -26,6 +25,7 @@ require (
 	github.com/filecoin-project/go-jsonrpc v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/ipfs/go-log/v2 v2.5.1 // indirect
+	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 )
 
@@ -38,7 +38,7 @@ require (
 	cosmossdk.io/log v1.4.1 // indirect; indirectgvm
 	cosmossdk.io/math v1.4.0 // indirect
 	cosmossdk.io/store v1.1.0 // indirect
-	cosmossdk.io/x/tx v0.13.5 // indirect
+	cosmossdk.io/x/tx v0.13.7 // indirect
 	filippo.io/edwards25519 v1.0.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/99designs/keyring v1.2.1 // indirect
