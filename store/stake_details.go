@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"strings"
+
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -17,27 +19,27 @@ type Staker struct {
 }
 
 type QuorumNode struct {
-	FpBtcPk      string   `json:"fpName"`
+	FpBtcPk      string   `json:"fpBtcPk"`
 	FpVoteWeight uint64   `json:"fpVoteWeight"`
+	IsSign       bool     `json:"isSign"`
 	Staker       []Staker `json:"staker"`
 }
 
 type StakeDetails struct {
-	BatchID       uint64       `json:"batchId"`
-	TotalBTCVote  uint64       `json:"tatolBtcVote"`
-	BabylonBlock  uint64       `json:"babylonBlock"`
-	BitcoinQuorum []QuorumNode `json:"BitcoinQuorum"`
+	BatchID           uint64       `json:"batchId"`
+	TotalBTCVote      uint64       `json:"tatolBtcVote"`
+	BabylonBlock      uint64       `json:"babylonBlock"`
+	BitcoinQuorum     []QuorumNode `json:"bitcoinQuorum"`
+	SymbioticSignNode []string     `json:"symbioticSignNode"`
 }
 
-func (s *Storage) SetStakeDetails(batchId uint64, blockHeight uint64, msg CreateBTCDelegation, stakeType int8) error {
+func (s *Storage) SetStakeDetails(msg CreateBTCDelegation, stakeType int8) error {
 	if stakeType == DelegateType {
-		stakeDB, err := s.db.Get(getStakeDetailsKey(batchId), nil)
+		stakeDB, err := s.db.Get(getStakeDetailsKey(), nil)
 		if err != nil {
 			if errors.Is(err, leveldb.ErrNotFound) {
 				var sD = StakeDetails{
-					BatchID:      batchId,
 					TotalBTCVote: uint64(msg.CBD.StakingValue),
-					BabylonBlock: blockHeight,
 					BitcoinQuorum: []QuorumNode{
 						{
 							FpBtcPk:      msg.CBD.FpBtcPkList[0].MarshalHex(),
@@ -55,7 +57,7 @@ func (s *Storage) SetStakeDetails(batchId uint64, blockHeight uint64, msg Create
 				if err != nil {
 					return err
 				}
-				return s.db.Put(getStakeDetailsKey(batchId), bz, nil)
+				return s.db.Put(getStakeDetailsKey(), bz, nil)
 			} else {
 				return err
 			}
@@ -110,9 +112,9 @@ func (s *Storage) SetStakeDetails(batchId uint64, blockHeight uint64, msg Create
 		if err != nil {
 			return err
 		}
-		return s.db.Put(getStakeDetailsKey(batchId), bsD, nil)
+		return s.db.Put(getStakeDetailsKey(), bsD, nil)
 	} else if stakeType == UndelegateType {
-		stakeDB, err := s.db.Get(getStakeDetailsKey(batchId), nil)
+		stakeDB, err := s.db.Get(getStakeDetailsKey(), nil)
 		if err != nil {
 			return err
 		}
@@ -131,14 +133,14 @@ func (s *Storage) SetStakeDetails(batchId uint64, blockHeight uint64, msg Create
 		if err != nil {
 			return err
 		}
-		return s.db.Put(getStakeDetailsKey(batchId), bsD, nil)
+		return s.db.Put(getStakeDetailsKey(), bsD, nil)
 	} else {
 		return errors.New("unknown stake type")
 	}
 }
 
-func (s *Storage) GetStakeDetails(batchId uint64) (StakeDetails, error) {
-	sDB, err := s.db.Get(getStakeDetailsKey(batchId), nil)
+func (s *Storage) GetStakeDetails() (StakeDetails, error) {
+	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
 	if err != nil {
 		return handleError(StakeDetails{}, err)
 	}
@@ -146,5 +148,67 @@ func (s *Storage) GetStakeDetails(batchId uint64) (StakeDetails, error) {
 	if err = json.Unmarshal(sDB, &sD); err != nil {
 		return StakeDetails{}, err
 	}
+	return sD, nil
+}
+
+func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, stateRoot string, babylonBlockHeight uint64) error {
+	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
+	if err != nil {
+		if errors.Is(err, leveldb.ErrNotFound) {
+			return errors.New("the database does not have stake data")
+		}
+		return err
+	}
+
+	var sD StakeDetails
+	if err = json.Unmarshal(sDB, &sD); err != nil {
+		return err
+	}
+
+	var sF SymbioticFpIds
+	sFB, err := s.db.Get(getSymbioticFpIdsKey(batchID), nil)
+	if err != nil {
+		if !errors.Is(err, leveldb.ErrNotFound) {
+			return err
+		}
+	} else {
+		if err = json.Unmarshal(sFB, &sF); err != nil {
+			return err
+		}
+		for _, sR := range sF.SignRequests {
+			sD.SymbioticSignNode = append(sD.SymbioticSignNode, sR.SignAddress)
+		}
+	}
+
+	sD.BabylonBlock = babylonBlockHeight
+
+	for fpPubkeyHex, sR := range fpSignCache {
+		for i, quorum := range sD.BitcoinQuorum {
+			if strings.ToLower(fpPubkeyHex) == strings.ToLower(quorum.FpBtcPk) && sR == stateRoot {
+				sD.BitcoinQuorum[i].IsSign = true
+			}
+		}
+	}
+
+	bsD, err := json.Marshal(sD)
+	if err != nil {
+		return err
+	}
+
+	return s.db.Put(getBatchStakeDetailsKey(batchID), bsD, nil)
+}
+
+func (s *Storage) GetBatchStakeDetails(batchID uint64) (StakeDetails, error) {
+	bSDB, err := s.db.Get(getBatchStakeDetailsKey(batchID), nil)
+	if err != nil {
+		return handleError(StakeDetails{}, err)
+	}
+
+	var sD StakeDetails
+	if err = json.Unmarshal(bSDB, &sD); err != nil {
+		return StakeDetails{}, err
+	}
+	sD.BatchID = batchID
+
 	return sD, nil
 }

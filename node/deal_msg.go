@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
+
 	tdtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 	tmtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
-
-	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 )
 
 func (n *Node) ProcessMessage() {

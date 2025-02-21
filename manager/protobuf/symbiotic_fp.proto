@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option go_package = "./protobuf/pb";
+package symbiotic_fp.proto_rpc;
+
+service CelestiaService {
+  rpc StateRootSignIDs(StateRootSignIDsRequest) returns (StateRootSignIDsResponse);
+}
+
+message StateRootSignIDsRequest {
+  string ids = 1;
+}
+
+message StateRootSignIDsResponse {
+  bool success = 1;
+  string message = 2;
+}

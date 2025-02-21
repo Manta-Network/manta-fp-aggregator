@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/binary"
 	"encoding/json"
+
 	"github.com/babylonlabs-io/babylon/x/btcstaking/types"
 )
 
@@ -11,7 +12,7 @@ type BtcUndelegate struct {
 	TxHash []byte `json:"tx_hash"`
 }
 
-func (s *Storage) SetBtcUndelegateMsg(batchId uint64, blockHeight uint64, msg BtcUndelegate) error {
+func (s *Storage) SetBtcUndelegateMsg(msg BtcUndelegate) error {
 	bz, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -26,7 +27,7 @@ func (s *Storage) SetBtcUndelegateMsg(batchId uint64, blockHeight uint64, msg Bt
 		if err != nil {
 			return err
 		}
-		err = s.SetStakeDetails(batchId, blockHeight, cBD, UndelegateType)
+		err = s.SetStakeDetails(cBD, UndelegateType)
 		if err != nil {
 			return err
 		}
@@ -51,11 +52,11 @@ func (s *Storage) GetBtcUndelegateMsg(txHash []byte) (bool, BtcUndelegate) {
 
 func (s *Storage) setBTCUnDelegateAmount(address []byte, amount uint64) error {
 	amountBz := make([]byte, 8)
-	amountB, err := s.db.Get(getBTCDelegateAmountKey(address), nil)
+	amountB, err := s.db.Get(getBTCDelegateAmountKey(), nil)
 	if err != nil {
 		return err
 	}
 	a1 := binary.BigEndian.Uint64(amountB)
 	binary.BigEndian.PutUint64(amountBz, a1-amount)
-	return s.db.Put(getBTCDelegateAmountKey(address), amountBz, nil)
+	return s.db.Put(getBTCDelegateAmountKey(), amountBz, nil)
 }

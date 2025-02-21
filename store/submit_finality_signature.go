@@ -32,13 +32,19 @@ func (s *Storage) GetSubmitFinalitySignatureMsg(txHash []byte) (bool, SubmitFina
 	return true, sFs
 }
 
+type WrapperSFs struct {
+	SubmitFinalitySignature SubmitFinalitySignatureMsgParams `json:"submit_finality_signature"`
+}
+
 type SubmitFinalitySignatureMsgParams struct {
-	FpPubkeyHex string `json:"fp_pubkey_hex"`
-	Height      uint64 `json:"height"`
-	PubRand     []byte `json:"pub_rand"`
-	Proof       Proof  `json:"proof"`
-	StateRoot   []byte `json:"state_root"`
-	Signature   []byte `json:"signature"`
+	FpPubkeyHex   string `json:"fp_pubkey_hex"`
+	L1BlockNumber uint64 `json:"l1_block_number"`
+	L1BlockHash   string `json:"l1_block_hash"`
+	L2BlockNumber uint64 `json:"l2_block_number"`
+	PubRand       []byte `json:"pub_rand"`
+	Proof         Proof  `json:"proof"`
+	StateRoot     string `json:"state_root"`
+	Signature     []byte `json:"signature"`
 }
 
 type Proof struct {
@@ -49,15 +55,14 @@ type Proof struct {
 }
 
 type SubmitFinalitySignatureMsgValue struct {
-	Sender   string `json:"sender"`
-	Contract string `json:"contract"`
-	SubmitFinalitySignatureMsgParams
+	Sender                  string `json:"sender"`
+	Contract                string `json:"contract"`
+	SubmitFinalitySignature []byte `json:"submit_finality_signature"`
 }
 
 var (
-	ErrInvalidLengthTx        = fmt.Errorf("proto: negative length found during unmarshaling")
-	ErrIntOverflowTx          = fmt.Errorf("proto: integer overflow")
-	ErrUnexpectedEndOfGroupTx = fmt.Errorf("proto: unexpected end of group")
+	ErrInvalidLengthTx = fmt.Errorf("proto: negative length found during unmarshaling")
+	ErrIntOverflowTx   = fmt.Errorf("proto: integer overflow")
 )
 
 func (m *SubmitFinalitySignatureMsgValue) Unmarshal(dAtA []byte) error {
@@ -155,59 +160,7 @@ func (m *SubmitFinalitySignatureMsgValue) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FpPubkeyHex", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowTx
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthTx
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthTx
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.FpPubkeyHex = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 4:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Height", wireType)
-			}
-			var v uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowTx
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.Height = v
-		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PubRand", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Msg", wireType)
 			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
@@ -234,110 +187,9 @@ func (m *SubmitFinalitySignatureMsgValue) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.PubRand = append(m.PubRand[:0], dAtA[iNdEx:postIndex]...)
-			if m.PubRand == nil {
-				m.PubRand = []byte{}
-			}
-			iNdEx = postIndex
-		case 6:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Proof", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowTx
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthTx
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthTx
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.Proof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 7:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field StateRoot", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowTx
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthTx
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthTx
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.StateRoot = append(m.StateRoot[:0], dAtA[iNdEx:postIndex]...)
-			if m.StateRoot == nil {
-				m.StateRoot = []byte{}
-			}
-			iNdEx = postIndex
-		case 8:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Signature", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowTx
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthTx
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthTx
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Signature = append(m.Signature[:0], dAtA[iNdEx:postIndex]...)
-			if m.Signature == nil {
-				m.Signature = []byte{}
+			m.SubmitFinalitySignature = append(m.SubmitFinalitySignature[:0], dAtA[iNdEx:postIndex]...)
+			if m.SubmitFinalitySignature == nil {
+				m.SubmitFinalitySignature = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -371,11 +223,4 @@ func skipTx(dAtA []byte) (n int, err error) {
 		}
 	}
 	return l, io.ErrUnexpectedEOF
-}
-
-// Unmarshal method for the Proof struct
-func (p *Proof) Unmarshal(dAtA []byte) error {
-	// Unmarshalling code for Proof struct here
-	// Similar to the above pattern
-	return nil
 }

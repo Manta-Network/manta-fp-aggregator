@@ -1,9 +1,16 @@
 manager:
   level_db_folder: "manager_storage"
-  sdk_rpc: "127.0.0.1:9000"
+  symbiotic_fp_rpc: "127.0.0.1:34500"
   ws_addr: "tcp://127.0.0.1:8081"
   sign_timeout: "20s"
   node_members: ""
+  fp_timeout: "30s"
+  max_babylon_operator_num: 1000
+  celestia_config:
+    namespace: ""
+    da_rpc: ""
+    auth_token: ""
+    timeout: ""
 
 node:
   level_db_folder: "node_storage1"
@@ -16,7 +23,7 @@ eth_starting_height: 1
 babylon_starting_height: 236650
 eth_block_step: 100
 babylon_block_step: 10
-babylon_rpc: "https://rpc-euphrates.devnet.babylonlabs.io:443"
+babylon_rpc: ""
 eth_rpc: "http://127.0.0.1:8545"
 eth_chain_id: 31337
 contracts:

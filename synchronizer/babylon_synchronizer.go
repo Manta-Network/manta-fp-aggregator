@@ -2,12 +2,14 @@ package synchronizer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
 
+	"github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/common/tasks"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
@@ -181,16 +183,23 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 				} else if msg.TypeUrl == ContractMsgType {
 					var sMsg store.SubmitFinalitySignatureMsgValue
 					sMsg.Unmarshal(msg.Value)
-					if sMsg.Contract == syncer.opFinalityGadgetAddr && sMsg.StateRoot != nil {
-						txMessage := store.TxMessage{
-							BlockHeight:     uint64(block.Block.Height),
-							TransactionHash: transaction.Hash(),
-							Type:            "/MsgSubmitFinalitySignature",
-							Data:            msg.Value,
-							Timestamp:       time.Now().Unix(),
+					if sMsg.Contract == syncer.opFinalityGadgetAddr {
+						var sigParams store.WrapperSFs
+						if err = json.Unmarshal(sMsg.SubmitFinalitySignature, &sigParams); err != nil {
+							syncer.log.Error("failed to unmarshal submitFinalitySignature JSON:", "err", err)
+							return err
 						}
-						txMessages = append(txMessages, txMessage)
-						syncer.txMsgChan <- txMessage
+						if sigParams.SubmitFinalitySignature.StateRoot != "" {
+							txMessage := store.TxMessage{
+								BlockHeight:     uint64(block.Block.Height),
+								TransactionHash: transaction.Hash(),
+								Type:            common.MsgSubmitFinalitySignatureType,
+								Data:            sMsg.SubmitFinalitySignature,
+								Timestamp:       time.Now().Unix(),
+							}
+							txMessages = append(txMessages, txMessage)
+							syncer.txMsgChan <- txMessage
+						}
 					}
 				}
 			}

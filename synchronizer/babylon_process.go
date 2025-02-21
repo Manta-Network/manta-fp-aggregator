@@ -1,12 +1,12 @@
 package synchronizer
 
 import (
-	types3 "github.com/babylonlabs-io/babylon/x/btccheckpoint/types"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 
+	types3 "github.com/babylonlabs-io/babylon/x/btccheckpoint/types"
 	types2 "github.com/babylonlabs-io/babylon/x/btcstaking/types"
 	"github.com/babylonlabs-io/babylon/x/finality/types"
 )
@@ -47,7 +47,7 @@ func (syncer *BabylonSynchronizer) ProcessCreateBTCDelegation(txMessage store.Tx
 			syncer.log.Error("failed to new btc transaction", "err", err)
 			return err
 		}
-		err = syncer.db.SetCreateBTCDelegationMsg(0, txMessage.BlockHeight, store.CreateBTCDelegation{
+		err = syncer.db.SetCreateBTCDelegationMsg(store.CreateBTCDelegation{
 			CBD:    mCBD,
 			TxHash: txMessage.TransactionHash,
 		})
@@ -91,7 +91,7 @@ func (syncer *BabylonSynchronizer) ProcessBTCUndelegate(txMessage store.TxMessag
 
 	if txMessage.Type == common.MsgBTCUndelegate {
 		mBUD.Unmarshal(txMessage.Data)
-		err = syncer.db.SetBtcUndelegateMsg(0, txMessage.BlockHeight, store.BtcUndelegate{
+		err = syncer.db.SetBtcUndelegateMsg(store.BtcUndelegate{
 			BU:     mBUD,
 			TxHash: txMessage.TransactionHash,
 		})

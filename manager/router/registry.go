@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
+
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Registry struct {
@@ -53,35 +55,15 @@ func (registry *Registry) SignMsgHandler() gin.HandlerFunc {
 	}
 }
 
-func (registry *Registry) StakerDelegationHandler() gin.HandlerFunc {
+func (registry *Registry) StakerAmountHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var request types.StakerDelegationRequest
-		if err := c.ShouldBindJSON(&request); err != nil {
-			c.JSON(http.StatusBadRequest, errors.New("invalid request body"))
-			return
-		}
-		if request.Address == "" {
-			c.JSON(http.StatusBadRequest, errors.New("address must not be nil"))
-			return
-		}
-		var result *types.StakerDelegationResult
-		var err error
-
-		result.Amount, err = registry.db.GetBTCDelegateAmount([]byte(request.Address))
+		amount, err := registry.db.GetBTCDelegateAmount()
 		if err != nil {
-			c.String(http.StatusInternalServerError, "failed to get staker delegation")
-			log.Error("failed to get staker delegation", "error", err)
+			c.String(http.StatusInternalServerError, "failed to get staker delegation amount")
+			log.Error("failed to get staker delegation amount", "error", err)
 			return
 		}
-		data, err := json.Marshal(result)
-		if err != nil {
-			c.String(http.StatusInternalServerError, "failed to marshal staker delegation")
-			log.Error("failed to marshal staker delegation", "error", err)
-			return
-		}
-		if _, err = c.Writer.Write(data); err != nil {
-			log.Error("failed to write staker delegation to response writer", "error", err)
-		}
+		c.String(http.StatusOK, strconv.FormatUint(amount, 10))
 	}
 }
 
@@ -92,14 +74,14 @@ func (registry *Registry) StakerDetailsHandler() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, errors.New("invalid request body"))
 			return
 		}
-		if request.BatchId <= 0 {
+		if request.BatchId < 0 {
 			c.JSON(http.StatusBadRequest, errors.New("invalid request batch_id"))
 			return
 		}
 		var result store.StakeDetails
 		var err error
 
-		result, err = registry.db.GetStakeDetails(request.BatchId)
+		result, err = registry.db.GetBatchStakeDetails(request.BatchId)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "failed to get staker details")
 			log.Error("failed to get staker details", "error", err)

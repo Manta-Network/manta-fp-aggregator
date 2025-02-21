@@ -41,10 +41,6 @@ type SignResult struct {
 	NonSignerPubkeys []*sign.G1Point `json:"non_signer_pubkeys"`
 }
 
-type StakerDelegationResult struct {
-	Amount uint64 `json:"amount"`
-}
-
 type Method string
 
 const (

@@ -29,17 +29,28 @@ type NodeConfig struct {
 }
 
 type ManagerConfig struct {
-	LevelDbFolder string        `yaml:"level_db_folder"`
-	SdkRpc        string        `yaml:"sdk_rpc"`
-	WsAddr        string        `yaml:"ws_addr"`
-	SignTimeout   time.Duration `yaml:"sign_timeout"`
-	NodeMembers   string        `yaml:"node_members"`
+	LevelDbFolder         string         `yaml:"level_db_folder"`
+	SymbioticFpRpc        string         `yaml:"symbiotic_fp_rpc"`
+	WsAddr                string         `yaml:"ws_addr"`
+	HttpAddr              string         `yaml:"http_addr"`
+	SignTimeout           time.Duration  `yaml:"sign_timeout"`
+	FPTimeout             time.Duration  `yaml:"fp_timeout"`
+	NodeMembers           string         `yaml:"node_members"`
+	MaxBabylonOperatorNum uint64         `yaml:"max_babylon_operator_num"`
+	CelestiaConfig        CelestiaConfig `yaml:"celestia_config"`
 }
 
 type ContractsConfig struct {
 	FrmContractAddress string `yaml:"frm_contract_address"`
 	BarContactAddress  string `yaml:"bar_contact_address"`
 	OpFinalityGadgat   string `yaml:"op_finality_gadgat"`
+}
+
+type CelestiaConfig struct {
+	Namespace string        `yaml:"namespace"`
+	DaRpc     string        `yaml:"da_rpc"`
+	AuthToken string        `yaml:"auth_token"`
+	Timeout   time.Duration `yaml:"timeout"`
 }
 
 func DefaultConfiguration() *Config {
@@ -52,10 +63,11 @@ func DefaultConfiguration() *Config {
 			WaitScanInterval: 3,
 		},
 		Manager: ManagerConfig{
-			LevelDbFolder: "manager_storage",
-			SdkRpc:        "127.0.0.1:9000",
-			WsAddr:        "127.0.0.1:8081",
-			SignTimeout:   20,
+			LevelDbFolder:  "manager_storage",
+			SymbioticFpRpc: "127.0.0.1:34500",
+			WsAddr:         "127.0.0.1:8081",
+			SignTimeout:    20,
+			FPTimeout:      30,
 		},
 		EthStartingHeight:     1,
 		BabylonStartingHeight: 1,

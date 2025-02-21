@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"github.com/syndtr/goleveldb/leveldb"
 
 	"github.com/babylonlabs-io/babylon/x/btcstaking/types"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 type CreateBTCDelegation struct {
@@ -14,18 +14,17 @@ type CreateBTCDelegation struct {
 	TxHash []byte `json:"tx_hash"`
 }
 
-func (s *Storage) SetCreateBTCDelegationMsg(batchId uint64, blockHeight uint64, msg CreateBTCDelegation) error {
+func (s *Storage) SetCreateBTCDelegationMsg(msg CreateBTCDelegation) error {
 	bz, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-
-	err = s.setBTCDelegateAmount([]byte(msg.CBD.StakerAddr), uint64(msg.CBD.StakingValue))
+	err = s.setBTCDelegateAmount(uint64(msg.CBD.StakingValue))
 	if err != nil {
 		return err
 	}
 
-	err = s.SetStakeDetails(batchId, blockHeight, msg, DelegateType)
+	err = s.SetStakeDetails(msg, DelegateType)
 	if err != nil {
 		return err
 	}
@@ -45,28 +44,29 @@ func (s *Storage) GetCreateBTCDelegationMsg(txHash []byte) (bool, CreateBTCDeleg
 	return true, cBD
 }
 
-func (s *Storage) GetBTCDelegateAmount(address []byte) (uint64, error) {
-	amountB, err := s.db.Get(getBTCDelegateAmountKey(address), nil)
+func (s *Storage) GetBTCDelegateAmount() (uint64, error) {
+	amountB, err := s.db.Get(getBTCDelegateAmountKey(), nil)
 	if err != nil {
 		return handleError(uint64(0), err)
 	}
 	return binary.BigEndian.Uint64(amountB), nil
 }
 
-func (s *Storage) setBTCDelegateAmount(address []byte, amount uint64) error {
+func (s *Storage) setBTCDelegateAmount(amount uint64) error {
 	amountBz := make([]byte, 8)
-	amountB, err := s.db.Get(getBTCDelegateAmountKey(address), nil)
+	amountB, err := s.db.Get(getBTCDelegateAmountKey(), nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
 			binary.BigEndian.PutUint64(amountBz, amount)
-			return s.db.Put(getBTCDelegateAmountKey(address), amountBz, nil)
+			return s.db.Put(getBTCDelegateAmountKey(), amountBz, nil)
 		} else {
 			return err
 		}
 	}
 	a1 := binary.BigEndian.Uint64(amountB)
-	binary.BigEndian.PutUint64(amountBz, a1+amount)
-	return s.db.Put(getBTCDelegateAmountKey(address), amountBz, nil)
+	totalAmount := a1 + amount
+	binary.BigEndian.PutUint64(amountBz, totalAmount)
+	return s.db.Put(getBTCDelegateAmountKey(), amountBz, nil)
 }
 
 func (s *Storage) SetBabylonDelegationKey(babylonTx []byte, btcTx []byte) error {
