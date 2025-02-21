@@ -17,7 +17,6 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
 	github.com/tendermint/tendermint v0.34.16
 	github.com/urfave/cli/v2 v2.25.7
-	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -26,6 +25,7 @@ require (
 	github.com/filecoin-project/go-jsonrpc v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/ipfs/go-log/v2 v2.5.1 // indirect
+	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 )
 
@@ -146,7 +146,7 @@ require (
 	go.etcd.io/bbolt v1.4.0-alpha.0.0.20240404170359-43604f3112c5 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/term v0.25.0 // indirect
+	golang.org/x/term v0.27.0 // indirect
 	google.golang.org/genproto v0.0.0-20240227224415-6ceb2ff114de // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240814211410-ddb44dafa142 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240814211410-ddb44dafa142 // indirect
@@ -220,12 +220,12 @@ require (
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.28.0 // indirect
+	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
-	golang.org/x/net v0.30.0 // indirect
-	golang.org/x/sync v0.8.0
-	golang.org/x/sys v0.26.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
+	golang.org/x/sync v0.10.0
+	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/text v0.21.0 // indirect
 	google.golang.org/protobuf v1.35.1
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.3.0 // indirect
