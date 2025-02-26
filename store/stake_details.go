@@ -27,8 +27,10 @@ type QuorumNode struct {
 
 type StakeDetails struct {
 	BatchID           uint64       `json:"batchId"`
-	TotalBTCVote      uint64       `json:"tatolBtcVote"`
+	TotalBTCVote      uint64       `json:"totalBtcVote"`
 	BabylonBlock      uint64       `json:"babylonBlock"`
+	StateRoot         string       `json:"stateRoot"`
+	EthBlock          uint64       `json:"ethBlock"`
 	BitcoinQuorum     []QuorumNode `json:"bitcoinQuorum"`
 	SymbioticSignNode []string     `json:"symbioticSignNode"`
 }
@@ -151,7 +153,7 @@ func (s *Storage) GetStakeDetails() (StakeDetails, error) {
 	return sD, nil
 }
 
-func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, stateRoot string, babylonBlockHeight uint64) error {
+func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, stateRoot string, babylonBlockHeight uint64, ethBlockHeight uint64) error {
 	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
@@ -181,6 +183,8 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 	}
 
 	sD.BabylonBlock = babylonBlockHeight
+	sD.StateRoot = stateRoot
+	sD.EthBlock = ethBlockHeight
 
 	for fpPubkeyHex, sR := range fpSignCache {
 		for i, quorum := range sD.BitcoinQuorum {
@@ -211,4 +215,27 @@ func (s *Storage) GetBatchStakeDetails(batchID uint64) (StakeDetails, error) {
 	sD.BatchID = batchID
 
 	return sD, nil
+}
+
+func (s *Storage) GetBatchTotalBabylonStakeAmount(batchID uint64) (uint64, error) {
+	bSDB, err := s.db.Get(getBatchStakeDetailsKey(batchID), nil)
+	if err != nil {
+		return 0, err
+	}
+
+	var sD StakeDetails
+	if err = json.Unmarshal(bSDB, &sD); err != nil {
+		return 0, err
+	}
+
+	var totalAmount uint64
+	for _, quorum := range sD.BitcoinQuorum {
+		if quorum.IsSign {
+			for _, staker := range quorum.Staker {
+				totalAmount += staker.StakingAmount
+			}
+		}
+	}
+
+	return totalAmount, nil
 }

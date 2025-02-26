@@ -33,6 +33,7 @@ type ManagerConfig struct {
 	SymbioticFpRpc        string         `yaml:"symbiotic_fp_rpc"`
 	WsAddr                string         `yaml:"ws_addr"`
 	HttpAddr              string         `yaml:"http_addr"`
+	SymbioticStakeUrl     string         `yaml:"symbiotic_stake_url"`
 	SignTimeout           time.Duration  `yaml:"sign_timeout"`
 	FPTimeout             time.Duration  `yaml:"fp_timeout"`
 	NodeMembers           string         `yaml:"node_members"`
@@ -44,6 +45,7 @@ type ContractsConfig struct {
 	FrmContractAddress string `yaml:"frm_contract_address"`
 	BarContactAddress  string `yaml:"bar_contact_address"`
 	OpFinalityGadgat   string `yaml:"op_finality_gadgat"`
+	MsmContractAddress string `yaml:"msm_contract_address"`
 }
 
 type CelestiaConfig struct {

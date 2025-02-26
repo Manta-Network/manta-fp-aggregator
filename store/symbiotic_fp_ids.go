@@ -3,13 +3,15 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"math/big"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
 type SymbioticFpIds struct {
-	BatchId      uint64        `json:"batch_id"`
-	SignRequests []SignRequest `json:"sign_requests"`
+	BatchId          uint64        `json:"batch_id"`
+	SignRequests     []SignRequest `json:"sign_requests"`
+	TotalStakeAmount *big.Int      `json:"total_stake_amount"`
 }
 
 type SignRequest struct {
@@ -33,6 +35,8 @@ func (s *Storage) SetSymbioticFpIds(id SymbioticFpIds) error {
 	if err = json.Unmarshal(sFz, &sF); err != nil {
 		return err
 	}
+
+	sF.TotalStakeAmount = new(big.Int).Add(sF.TotalStakeAmount, id.TotalStakeAmount)
 	sF.SignRequests = append(sF.SignRequests, id.SignRequests[0])
 
 	sFz, err = json.Marshal(sF)
@@ -42,14 +46,14 @@ func (s *Storage) SetSymbioticFpIds(id SymbioticFpIds) error {
 	return s.db.Put(getSymbioticFpIdsKey(id.BatchId), sFz, nil)
 }
 
-func (s *Storage) GetSymbioticFpIds(batchId uint64) (bool, SymbioticFpIds) {
+func (s *Storage) GetSymbioticFpIds(batchId uint64) (SymbioticFpIds, error) {
 	sFz, err := s.db.Get(getSymbioticFpIdsKey(batchId), nil)
 	if err != nil {
-		return handleError2(SymbioticFpIds{}, err)
+		return handleError(SymbioticFpIds{}, err)
 	}
 	var sF SymbioticFpIds
 	if err = json.Unmarshal(sFz, &sF); err != nil {
-		return false, SymbioticFpIds{}
+		return SymbioticFpIds{}, err
 	}
-	return true, sF
+	return sF, nil
 }

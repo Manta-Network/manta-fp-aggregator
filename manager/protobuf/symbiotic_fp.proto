@@ -9,6 +9,7 @@ service CelestiaService {
 
 message StateRootSignIDsRequest {
   string ids = 1;
+  uint64 l1_block_number = 2;
 }
 
 message StateRootSignIDsResponse {

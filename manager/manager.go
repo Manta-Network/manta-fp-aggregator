@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/base64"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"math/rand"
 	"net"
@@ -27,6 +29,7 @@ import (
 
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/bls"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
+	"github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
 	common2 "github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
@@ -66,6 +69,7 @@ type Manager struct {
 	httpServer  *http.Server
 	grpcAddr    string
 	gs          *grpc.Server
+	sStakeUrl   string
 	mu          sync.Mutex
 
 	ctx     context.Context
@@ -82,6 +86,7 @@ type Manager struct {
 	barContract     *bls.BLSApkRegistry
 	barContractAddr common.Address
 	rawBarContract  *bind.BoundContract
+	msmContract     *sfp.MantaStakingMiddleware
 	batchId         uint64
 	l2BlockNumber   uint64
 
@@ -128,6 +133,11 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
 		ethCli,
 	)
+
+	msmContract, err := sfp.NewMantaStakingMiddleware(common.HexToAddress(cfg.Contracts.MsmContractAddress), ethCli)
+	if err != nil {
+		return nil, err
+	}
 
 	latestBlock, err := ethCli.BlockNumber(ctx)
 	if err != nil {
@@ -177,6 +187,7 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		wsServer:            wsServer,
 		httpAddr:            cfg.Manager.HttpAddr,
 		grpcAddr:            cfg.Manager.SymbioticFpRpc,
+		sStakeUrl:           cfg.Manager.SymbioticStakeUrl,
 		celestiaDa:          celestiaDa,
 		NodeMembers:         nodeMemberS,
 		ctx:                 ctx,
@@ -197,6 +208,7 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		barContract:         barContract,
 		barContractAddr:     common.HexToAddress(cfg.Contracts.BarContactAddress),
 		rawBarContract:      rawBarContract,
+		msmContract:         msmContract,
 		batchId:             batchId.Uint64(),
 		l2BlockNumber:       0,
 	}, nil
@@ -400,6 +412,12 @@ func (m *Manager) work() {
 				}
 			}
 
+			err := m.db.SetBatchStakeDetails(m.batchId, fpSignCache, stateRoot, msg.BlockHeight, sigParams.SubmitFinalitySignature.L1BlockNumber)
+			if err != nil {
+				m.log.Error("failed to store batch stake details", "err", err)
+				continue
+			}
+
 			opts, err := client.NewTransactOpts(m.ctx, m.ethChainID, m.privateKey)
 			if err != nil {
 				m.log.Error("failed to new transact opts", "err", err)
@@ -416,9 +434,14 @@ func (m *Manager) work() {
 				MsgHash: crypto.Keccak256Hash(msg.Data),
 			}
 
-			totalBtcStake, err := m.db.GetBTCDelegateAmount()
+			totalBtcStake, err := m.db.GetBatchTotalBabylonStakeAmount(m.batchId)
 			if err != nil {
 				m.log.Error("failed to get total btc stake", "err", err)
+				continue
+			}
+			symbioticStake, err := m.db.GetSymbioticFpIds(m.batchId)
+			if err != nil {
+				m.log.Error("failed to get symbiotic stake", "err", err)
 				continue
 			}
 
@@ -433,7 +456,7 @@ func (m *Manager) work() {
 					Y: signature.Y.BigInt(new(big.Int)),
 				},
 				TotalBtcStake:   big.NewInt(int64(totalBtcStake)),
-				TotalMantaStake: big.NewInt(1),
+				TotalMantaStake: symbioticStake.TotalStakeAmount,
 			}
 
 			tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(1))
@@ -461,13 +484,6 @@ func (m *Manager) work() {
 			m.log.Info("success to send verify finality signature transaction", "tx_hash", receipt.TxHash.String())
 
 			m.batchId++
-
-			err = m.db.SetBatchStakeDetails(m.batchId-1, fpSignCache, stateRoot, msg.BlockHeight)
-			if err != nil {
-				m.log.Error("failed to store batch stake details", "err", err)
-				continue
-			}
-
 			m.l2BlockNumber = sigParams.SubmitFinalitySignature.L2BlockNumber
 			// init cache
 			stateRootCountCache = make(map[string]int64)
@@ -602,8 +618,34 @@ func (m *Manager) StateRootSignIDs(ctx context.Context, request *pb.StateRootSig
 		return nil, err
 	}
 
+	cOpts := &bind.CallOpts{
+		BlockNumber: big.NewInt(int64(request.L1BlockNumber)),
+		From:        m.from,
+	}
+	operator, err := m.msmContract.Operators(cOpts, common.HexToAddress(signRequest.SignAddress))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator info at block: %v, err: %v", cOpts.BlockNumber, err)
+	}
+
+	if operator.OperatorName == "" {
+		m.log.Warn(fmt.Sprintf("node %s is not operator", signRequest.SignAddress))
+		return nil, nil
+	} else {
+		if operator.Paused {
+			m.log.Warn("operator is paused", "address", signRequest.SignAddress)
+			return nil, nil
+		}
+	}
+
+	stakeAmount, err := m.getSymbioticOperatorStakeAmount(signRequest.SignAddress)
+	if err != nil {
+		m.log.Error("failed to get operator stake amount", "address", signRequest.SignAddress, "err", err)
+		return nil, nil
+	}
+
 	var sFI = store.SymbioticFpIds{
-		BatchId: m.batchId,
+		BatchId:          m.batchId,
+		TotalStakeAmount: stakeAmount,
 	}
 
 	sFI.SignRequests = append(sFI.SignRequests, signRequest)
@@ -646,4 +688,57 @@ func getMaxSignStateRoot(m map[string]int64) string {
 	}
 
 	return maxSignStateRoot
+}
+
+func (m *Manager) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {
+	query := fmt.Sprintf(`{"query":"query {\n  vaultUpdates(first: 1, where: {operator: \"%s\"}, orderBy: timestamp, orderDirection: desc) {\n    vaultTotalActiveStaked\n  }\n}"}`, operator)
+	jsonQuery := []byte(query)
+
+	req, err := http.NewRequest("POST", m.sStakeUrl, bytes.NewBuffer(jsonQuery))
+	if err != nil {
+		m.log.Error("Error creating HTTP request:", "err", err)
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, multipart/mixed")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		m.log.Error("Error sending HTTP request:", "err", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		m.log.Error("Error reading response body:", "err", err)
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		m.log.Error("Error parsing JSON response:", "err", err)
+		return nil, err
+	}
+
+	var totalStaked = big.NewInt(0)
+	if data, exists := result["data"]; exists {
+		if vaultUpdates, exists := data.(map[string]interface{})["vaultUpdates"]; exists {
+			if len(vaultUpdates.([]interface{})) > 0 {
+				vaultTotalActiveStaked := vaultUpdates.([]interface{})[0].(map[string]interface{})["vaultTotalActiveStaked"]
+				totalStaked, _ = new(big.Int).SetString(vaultTotalActiveStaked.(string), 10)
+				m.log.Info(fmt.Sprintf("operator %s vaultTotalActiveStaked: %s", operator, vaultTotalActiveStaked))
+			} else {
+				m.log.Warn(fmt.Sprintf("operator %s no vault updates found", operator))
+			}
+		} else {
+			m.log.Warn(fmt.Sprintf("operator %s no vaultUpdates field found in response data", operator))
+		}
+	} else {
+		m.log.Warn(fmt.Sprintf("operator %s no data field found in JSON response", operator))
+	}
+
+	return totalStaked, nil
 }

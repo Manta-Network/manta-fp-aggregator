@@ -2,6 +2,8 @@ manager:
   level_db_folder: "manager_storage"
   symbiotic_fp_rpc: "127.0.0.1:34500"
   ws_addr: "tcp://127.0.0.1:8081"
+  http_addr: "127.0.0.1:34567"
+  symbiotic_stake_url: "https://api.goldsky.com/api/public/project_clnv4qr7e30dv33vpgx7y0f1d/subgraphs/manta-staking/0.0.7/gn"
   sign_timeout: "20s"
   node_members: ""
   fp_timeout: "30s"
@@ -30,3 +32,4 @@ contracts:
   frm_contract_address: ""
   bar_contact_address: ""
   op_finality_gadgat: ""
+  msm_contract_address: ""
