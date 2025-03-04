@@ -428,10 +428,8 @@ func (m *Manager) work() {
 				StateRoot:     common.HexToHash(stateRoot),
 				L2BlockNumber: big.NewInt(int64(sigParams.SubmitFinalitySignature.L2BlockNumber)),
 				L1BlockHash:   common.HexToHash(sigParams.SubmitFinalitySignature.L1BlockHash),
-				//todo for test
-				L1BlockNumber: big.NewInt(1),
-				//L1BlockNumber: big.NewInt(int64(sigParams.SubmitFinalitySignature.L1BlockNumber)),
-				MsgHash: crypto.Keccak256Hash(msg.Data),
+				L1BlockNumber: big.NewInt(int64(sigParams.SubmitFinalitySignature.L1BlockNumber)),
+				MsgHash:       crypto.Keccak256Hash(msg.Data),
 			}
 
 			totalBtcStake, err := m.db.GetBatchTotalBabylonStakeAmount(m.batchId)
@@ -519,7 +517,6 @@ func (m *Manager) SignMsgBatch(request types.SignMsgRequest) (*types.SignResult,
 	if signErr != nil {
 		return nil, signErr
 	}
-	//todo 2/3 signer to vote
 	if resp.Signature == nil {
 		return nil, errNotEnoughVoteNode
 	}
