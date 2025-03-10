@@ -24,6 +24,7 @@ var (
 	StakeDetailsKeyPrefix              = []byte{0x17}
 	BatchStakeDetailsKeyPrefix         = []byte{0x18}
 	SymbioticFpIdsKeyPrefix            = []byte{0x19}
+	L2OutputOracleKeyPrefix            = []byte{0x20}
 )
 
 func getBabylonBlockHeaderKey(number int64) []byte {
@@ -110,4 +111,10 @@ func getSymbioticFpIdsKey(batchId uint64) []byte {
 	numberBz := make([]byte, 8)
 	binary.BigEndian.PutUint64(numberBz, batchId)
 	return append(SymbioticFpIdsKeyPrefix, numberBz...)
+}
+
+func getL2OutputOracleKey(l1Number uint64) []byte {
+	numberBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(numberBz, l1Number)
+	return append(L2OutputOracleKeyPrefix, numberBz...)
 }
