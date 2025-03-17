@@ -33,3 +33,4 @@ contracts:
   bar_contact_address: ""
   op_finality_gadgat: ""
   msm_contract_address: ""
+  l2oo_contract_address: ""

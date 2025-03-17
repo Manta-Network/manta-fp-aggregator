@@ -28,11 +28,10 @@ type NodeSignRequest struct {
 }
 
 type SignMsgResponse struct {
-	Signature       []byte   `json:"signature"`
-	G2Point         []byte   `json:"g2_point"`
-	L2BlockNumber   *big.Int `json:"l2_block_number"`
-	NonSignerPubkey []byte   `json:"non_signer_pubkey"`
-	Vote            uint8    `json:"vote"`
+	Signature       []byte `json:"signature"`
+	G2Point         []byte `json:"g2_point"`
+	NonSignerPubkey []byte `json:"non_signer_pubkey"`
+	Vote            uint8  `json:"vote"`
 }
 
 type SignResult struct {

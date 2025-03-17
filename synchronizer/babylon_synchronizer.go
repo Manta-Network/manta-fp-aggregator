@@ -2,11 +2,13 @@ package synchronizer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"time"
 
+	common2 "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/Manta-Network/manta-fp-aggregator/common"
@@ -35,8 +37,8 @@ type BabylonSynchronizer struct {
 	client               *http.HTTP
 	db                   *store.Storage
 	headers              []types2.Header
-	latestHeader         *types2.Header
-	headerTraversal      *node.BabylonHeaderTraversal
+	LatestHeader         *types2.Header
+	HeaderTraversal      *node.BabylonHeaderTraversal
 	opFinalityGadgetAddr string
 	blockStep            uint64
 	startHeight          *big.Int
@@ -85,8 +87,8 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 	return &BabylonSynchronizer{
 		client:               cli,
 		blockStep:            cfg.BabylonBlockStep,
-		headerTraversal:      headerTraversal,
-		latestHeader:         fromHeader,
+		HeaderTraversal:      headerTraversal,
+		LatestHeader:         fromHeader,
 		db:                   db,
 		resourceCtx:          resCtx,
 		resourceCancel:       resCancel,
@@ -106,7 +108,7 @@ func (syncer *BabylonSynchronizer) Start() error {
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("retrying previous batch")
 			} else {
-				newHeaders, err := syncer.headerTraversal.NextHeaders(syncer.blockStep)
+				newHeaders, err := syncer.HeaderTraversal.NextHeaders(syncer.blockStep)
 				if err != nil {
 					syncer.log.Error("error querying for headers", "err", err)
 					continue
@@ -115,7 +117,7 @@ func (syncer *BabylonSynchronizer) Start() error {
 				} else {
 					syncer.headers = newHeaders
 				}
-				latestHeader := syncer.headerTraversal.LatestHeader()
+				latestHeader := syncer.HeaderTraversal.LatestHeader()
 				if latestHeader != nil {
 					syncer.log.Info("Latest header", "latestHeader Number", latestHeader.Height)
 				}
@@ -176,7 +178,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 						TransactionHash: transaction.Hash(),
 						Type:            msg.TypeUrl,
 						Data:            msg.Value,
-						Timestamp:       time.Now().Unix(),
+						Timestamp:       block.Block.Time.Unix(),
 					}
 					txMessages = append(txMessages, txMessage)
 					syncer.txMsgChan <- txMessage
@@ -195,10 +197,24 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 								TransactionHash: transaction.Hash(),
 								Type:            common.MsgSubmitFinalitySignatureType,
 								Data:            sMsg.SubmitFinalitySignature,
-								Timestamp:       time.Now().Unix(),
+								Timestamp:       block.Block.Time.Unix(),
+							}
+							decodedStateRootBytes, err := base64.StdEncoding.DecodeString(sigParams.SubmitFinalitySignature.StateRoot)
+							if err != nil {
+								syncer.log.Error("failed to decode stateRoot:", "err", err)
+								return err
+							}
+							sigParams.SubmitFinalitySignature.StateRoot = common2.Bytes2Hex(decodedStateRootBytes)
+							sigParams.Timestamp = uint64(block.Block.Time.Unix())
+							sigParams.TransactionHash = transaction.Hash()
+							sigParams.BlockNumber = uint64(block.Block.Height)
+							if err = syncer.db.SetBabylonSubmitFinalitySignature(sigParams); err != nil {
+								syncer.log.Error("failed to store submitFinalitySignature", "err", err)
+								return err
 							}
 							txMessages = append(txMessages, txMessage)
 							syncer.txMsgChan <- txMessage
+							syncer.log.Info("success to store submitFinalitySignature", "timestamp", sigParams.Timestamp)
 						}
 					}
 				}

@@ -35,7 +35,12 @@ type EthSynchronizer struct {
 	tasks             tasks.Group
 }
 
-func NewEthSynchronizer(cfg *config.Config, db *store.Storage, client node.EthClient, logger log.Logger, shutdown context.CancelCauseFunc, contractEventChan chan store.ContractEvent) (*EthSynchronizer, error) {
+func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Context, logger log.Logger, shutdown context.CancelCauseFunc, contractEventChan chan store.ContractEvent) (*EthSynchronizer, error) {
+	client, err := node.DialEthClient(ctx, cfg.EthRpc)
+	if err != nil {
+		return nil, err
+	}
+
 	dbLatestHeader, err := db.GetEthScannedHeight()
 	if err != nil {
 		return nil, err
@@ -63,6 +68,7 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, client node.EthCl
 
 	var contracts []common.Address
 	contracts = append(contracts, common.HexToAddress(cfg.Contracts.FrmContractAddress))
+	contracts = append(contracts, common.HexToAddress(cfg.Contracts.L2ooContractAddress))
 
 	resCtx, resCancel := context.WithCancel(context.Background())
 	return &EthSynchronizer{

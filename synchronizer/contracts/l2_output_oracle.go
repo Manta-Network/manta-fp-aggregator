@@ -43,7 +43,7 @@ func NewL2OutputOracle(log log.Logger) (*L2OutputOracle, error) {
 }
 
 func (l2oo *L2OutputOracle) ProcessOutputProposedEvent(db *store.Storage, event store.ContractEvent) error {
-	var l2OutputOracle *store.L2OutputOracle
+	var outputProposed *store.OutputProposed
 	if event.EventSignature.String() == l2oo.L2ooABI.Events["OutputProposed"].ID.String() {
 		outputProposedEvent, err := l2oo.L2ooFilterer.ParseOutputProposed(*event.RLPLog)
 		if err != nil {
@@ -53,7 +53,7 @@ func (l2oo *L2OutputOracle) ProcessOutputProposedEvent(db *store.Storage, event 
 		log.Info("parse outputProposedEvent success",
 			"state_root", hex.EncodeToString(outputProposedEvent.OutputRoot[:]))
 
-		l2OutputOracle = &store.L2OutputOracle{
+		outputProposed = &store.OutputProposed{
 			StateRoot:     hex.EncodeToString(outputProposedEvent.OutputRoot[:]),
 			L2BlockNumber: outputProposedEvent.L2BlockNumber,
 			L2OutputIndex: outputProposedEvent.L2OutputIndex,
@@ -63,11 +63,11 @@ func (l2oo *L2OutputOracle) ProcessOutputProposedEvent(db *store.Storage, event 
 		}
 	}
 
-	if l2OutputOracle != nil {
-		if err := db.SetL2OutputOracle(*l2OutputOracle); err != nil {
+	if outputProposed != nil {
+		if err := db.SetOutputProposed(*outputProposed); err != nil {
 			return err
 		}
-		l2oo.log.Info("store outputProposedEvent success")
+		l2oo.log.Info("store outputProposedEvent success", "timestamp", outputProposed.Timestamp.Uint64())
 	}
 
 	return nil

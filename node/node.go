@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -195,7 +196,7 @@ func (n *Node) sign() {
 					continue
 				}
 				if len(requestBody.TxHash) == 0 || requestBody.BlockNumber.Uint64() <= 0 {
-					n.log.Error("tx hash and l2 block number must not be nil or negative")
+					n.log.Error("tx hash and babylon block number must not be nil or negative")
 					RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "tx hash and l2 block number must not be nil or negative")
 					if err := n.wsClient.SendMsg(RpcResponse); err != nil {
 						n.log.Error("failed to send msg to manager", "err", err)
@@ -229,10 +230,9 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 		}
 		if bSign != nil {
 			signResponse := types.SignMsgResponse{
-				L2BlockNumber: requestBody.BlockNumber,
-				G2Point:       n.keyPairs.GetPubKeyG2().Serialize(),
-				Signature:     bSign.Serialize(),
-				Vote:          uint8(common2.AgreeVote),
+				G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
+				Signature: bSign.Serialize(),
+				Vote:      uint8(common2.AgreeVote),
 			}
 			RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
 			n.log.Info("node agree the msg, start to send response to finality manager")
@@ -247,7 +247,6 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 			}
 		} else {
 			signResponse := types.SignMsgResponse{
-				L2BlockNumber:   requestBody.BlockNumber,
 				G2Point:         nil,
 				Signature:       nil,
 				NonSignerPubkey: n.keyPairs.GetPubKeyG1().Serialize(),
@@ -285,10 +284,9 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 					bSign, err = n.SignMessage(requestBody)
 					if bSign != nil {
 						signResponse := types.SignMsgResponse{
-							L2BlockNumber: requestBody.BlockNumber,
-							G2Point:       n.keyPairs.GetPubKeyG2().Serialize(),
-							Signature:     bSign.Serialize(),
-							Vote:          uint8(common2.AgreeVote),
+							G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
+							Signature: bSign.Serialize(),
+							Vote:      uint8(common2.AgreeVote),
 						}
 						RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
 						n.log.Info("node agree the msg, start to send response to finality manager")
@@ -303,7 +301,6 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 						}
 					} else {
 						signResponse := types.SignMsgResponse{
-							L2BlockNumber:   requestBody.BlockNumber,
 							G2Point:         nil,
 							Signature:       nil,
 							NonSignerPubkey: n.keyPairs.GetPubKeyG1().Serialize(),
@@ -328,7 +325,6 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 					Signature:       nil,
 					G2Point:         nil,
 					NonSignerPubkey: n.keyPairs.GetPubKeyG1().Serialize(),
-					L2BlockNumber:   requestBody.BlockNumber,
 					Vote:            uint8(common2.DidNotVote),
 				}
 				RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
@@ -353,7 +349,17 @@ func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, e
 	if requestBody.TxType == common3.MsgSubmitFinalitySignatureType {
 		exist, sFS := n.db.GetSubmitFinalitySignatureMsg(requestBody.TxHash)
 		if exist {
-			byteData := crypto.Keccak256Hash(sFS.SFSByte)
+			var sigParams store.WrapperSFs
+			if err := json.Unmarshal(sFS.SFSByte, &sigParams); err != nil {
+				n.log.Error("failed to unmarshal submitFinalitySignature JSON:", "err", err)
+				return nil, err
+			}
+			decodedStateRootBytes, err := base64.StdEncoding.DecodeString(sigParams.SubmitFinalitySignature.StateRoot)
+			if err != nil {
+				n.log.Error("failed to decode stateRoot:", "err", err)
+				return nil, err
+			}
+			byteData := crypto.Keccak256Hash(decodedStateRootBytes)
 			bSign = n.keyPairs.SignMessage(byteData)
 			n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 		} else {

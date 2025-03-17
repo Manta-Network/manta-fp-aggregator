@@ -153,7 +153,7 @@ func (s *Storage) GetStakeDetails() (StakeDetails, error) {
 	return sD, nil
 }
 
-func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, stateRoot string, babylonBlockHeight uint64, ethBlockHeight uint64) error {
+func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, fs WrapperSFs) error {
 	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
@@ -167,28 +167,28 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 		return err
 	}
 
-	var sF SymbioticFpIds
-	sFB, err := s.db.Get(getSymbioticFpIdsKey(batchID), nil)
-	if err != nil {
-		if !errors.Is(err, leveldb.ErrNotFound) {
-			return err
-		}
-	} else {
-		if err = json.Unmarshal(sFB, &sF); err != nil {
-			return err
-		}
-		for _, sR := range sF.SignRequests {
-			sD.SymbioticSignNode = append(sD.SymbioticSignNode, sR.SignAddress)
-		}
-	}
+	//var sF SymbioticFpIds
+	//sFB, err := s.db.Get(getSymbioticFpIdsKey(batchID), nil)
+	//if err != nil {
+	//	if !errors.Is(err, leveldb.ErrNotFound) {
+	//		return err
+	//	}
+	//} else {
+	//	if err = json.Unmarshal(sFB, &sF); err != nil {
+	//		return err
+	//	}
+	//	for _, sR := range sF.SignRequests {
+	//		sD.SymbioticSignNode = append(sD.SymbioticSignNode, sR.SignAddress)
+	//	}
+	//}
 
-	sD.BabylonBlock = babylonBlockHeight
-	sD.StateRoot = stateRoot
-	sD.EthBlock = ethBlockHeight
+	sD.BabylonBlock = fs.BlockNumber
+	sD.StateRoot = fs.SubmitFinalitySignature.StateRoot
+	sD.EthBlock = fs.SubmitFinalitySignature.L1BlockNumber
 
 	for fpPubkeyHex, sR := range fpSignCache {
 		for i, quorum := range sD.BitcoinQuorum {
-			if strings.ToLower(fpPubkeyHex) == strings.ToLower(quorum.FpBtcPk) && sR == stateRoot {
+			if strings.ToLower(fpPubkeyHex) == strings.ToLower(quorum.FpBtcPk) && sR == fs.SubmitFinalitySignature.StateRoot {
 				sD.BitcoinQuorum[i].IsSign = true
 			}
 		}

@@ -13,7 +13,7 @@ func (s *Storage) UpdateEthHeight(height uint64) error {
 func (s *Storage) GetEthScannedHeight() (uint64, error) {
 	bz, err := s.db.Get(getEthScannedHeightKey(), nil)
 	if err != nil {
-		return handleError(uint64(0), err)
+		return handleError(uint64(1), err)
 	}
 	return binary.BigEndian.Uint64(bz), nil
 }

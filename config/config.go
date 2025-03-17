@@ -42,10 +42,11 @@ type ManagerConfig struct {
 }
 
 type ContractsConfig struct {
-	FrmContractAddress string `yaml:"frm_contract_address"`
-	BarContactAddress  string `yaml:"bar_contact_address"`
-	OpFinalityGadgat   string `yaml:"op_finality_gadgat"`
-	MsmContractAddress string `yaml:"msm_contract_address"`
+	FrmContractAddress  string `yaml:"frm_contract_address"`
+	BarContactAddress   string `yaml:"bar_contact_address"`
+	OpFinalityGadgat    string `yaml:"op_finality_gadgat"`
+	MsmContractAddress  string `yaml:"msm_contract_address"`
+	L2ooContractAddress string `yaml:"l2oo_contract_address"`
 }
 
 type CelestiaConfig struct {
