@@ -2,12 +2,15 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
-type L2OutputOracle struct {
+type OutputProposed struct {
 	StateRoot     string      `json:"state_root"`
 	L2BlockNumber *big.Int    `json:"l2_block_number"`
 	L2OutputIndex *big.Int    `json:"l2_output_index"`
@@ -16,22 +19,43 @@ type L2OutputOracle struct {
 	Timestamp     *big.Int    `json:"timestamp"`
 }
 
-func (s *Storage) SetL2OutputOracle(l2oo L2OutputOracle) error {
-	bz, err := json.Marshal(l2oo)
+func (s *Storage) SetOutputProposed(op OutputProposed) error {
+	bz, err := json.Marshal(op)
 	if err != nil {
 		return err
 	}
-	return s.db.Put(getL2OutputOracleKey(l2oo.L1BlockNumber), bz, nil)
+	return s.db.Put(getOutputProposedKey(op.Timestamp.Uint64()), bz, nil)
 }
 
-func (s *Storage) GetL2OutputOracle(l1BlockNumber uint64) (bool, L2OutputOracle) {
-	l2oob, err := s.db.Get(getL2OutputOracleKey(l1BlockNumber), nil)
+func (s *Storage) GetOutputProposedByTimestamp(timestamp uint64) (OutputProposed, error) {
+	opb, err := s.db.Get(getOutputProposedKey(timestamp), nil)
 	if err != nil {
-		return handleError2(L2OutputOracle{}, err)
+		return handleError(OutputProposed{}, err)
 	}
-	var l2oo L2OutputOracle
-	if err = json.Unmarshal(l2oob, &l2oo); err != nil {
-		return false, L2OutputOracle{}
+
+	var op OutputProposed
+	if err = json.Unmarshal(opb, &op); err != nil {
+		return OutputProposed{}, err
 	}
-	return true, l2oo
+	return op, nil
+}
+
+func (s *Storage) GetLatestUnprocessedStateRoot(timestamp, limit uint64) (*OutputProposed, error) {
+	iter := s.db.NewIterator(&util.Range{Start: getOutputProposedKey(timestamp + 1), Limit: getOutputProposedKey(timestamp + limit + 60)}, nil)
+	defer iter.Release()
+
+	if iter.Next() {
+		var output OutputProposed
+		if err := json.Unmarshal(iter.Value(), &output); err != nil {
+			return nil, err
+		}
+		return &output, nil
+	}
+
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("iterator error: %v", err)
+	}
+
+	return nil, nil
+
 }

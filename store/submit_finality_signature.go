@@ -2,8 +2,12 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 type SubmitFinalitySignature struct {
@@ -17,11 +21,11 @@ func (s *Storage) SetSubmitFinalitySignatureMsg(msg SubmitFinalitySignature) err
 	if err != nil {
 		return err
 	}
-	return s.db.Put(getSubmitFinalitySignatureKey(msg.TxHash), bz, nil)
+	return s.db.Put(getSubmitFinalitySignatureMsgKey(msg.TxHash), bz, nil)
 }
 
 func (s *Storage) GetSubmitFinalitySignatureMsg(txHash []byte) (bool, SubmitFinalitySignature) {
-	sFSB, err := s.db.Get(getSubmitFinalitySignatureKey(txHash), nil)
+	sFSB, err := s.db.Get(getSubmitFinalitySignatureMsgKey(txHash), nil)
 	if err != nil {
 		return handleError2(SubmitFinalitySignature{}, err)
 	}
@@ -34,6 +38,13 @@ func (s *Storage) GetSubmitFinalitySignatureMsg(txHash []byte) (bool, SubmitFina
 
 type WrapperSFs struct {
 	SubmitFinalitySignature SubmitFinalitySignatureMsgParams `json:"submit_finality_signature"`
+	BlockNumber             uint64                           `json:"block_number"`
+	Timestamp               uint64                           `json:"timestamp"`
+	TransactionHash         []byte                           `json:"transaction_hash"`
+}
+
+type BatchSubmitFinalitySignatures struct {
+	Signatures []WrapperSFs `json:"signatures"`
 }
 
 type SubmitFinalitySignatureMsgParams struct {
@@ -52,6 +63,60 @@ type Proof struct {
 	Index    uint64   `json:"index"`
 	LeafHash []byte   `json:"leaf_hash"`
 	Aunts    [][]byte `json:"aunts"`
+}
+
+func (s *Storage) SetBabylonSubmitFinalitySignature(sfs WrapperSFs) error {
+	var batchSignatures BatchSubmitFinalitySignatures
+	bsb, err := s.db.Get(getSubmitFinalitySignatureKey(sfs.Timestamp), nil)
+	if err != nil {
+		if errors.Is(err, leveldb.ErrNotFound) {
+			batchSignatures.Signatures = append(batchSignatures.Signatures, sfs)
+			bsz, err := json.Marshal(batchSignatures)
+			if err != nil {
+				return err
+			}
+			return s.db.Put(getSubmitFinalitySignatureKey(sfs.Timestamp), bsz, nil)
+		}
+		return err
+	}
+
+	err = json.Unmarshal(bsb, &batchSignatures)
+	if err != nil {
+		return err
+	}
+	batchSignatures.Signatures = append(batchSignatures.Signatures, sfs)
+	bsz, err := json.Marshal(batchSignatures)
+	if err != nil {
+		return err
+	}
+	return s.db.Put(getSubmitFinalitySignatureKey(sfs.Timestamp), bsz, nil)
+}
+
+func (s *Storage) GetBabylonFinalitySignatureByTimestamp(start uint64, end uint64) ([]WrapperSFs, error) {
+	var batchSubmitFinalitySignatures []BatchSubmitFinalitySignatures
+	var results []WrapperSFs
+	iter := s.db.NewIterator(&util.Range{Start: getSubmitFinalitySignatureKey(start), Limit: getSubmitFinalitySignatureKey(end)}, nil)
+	defer iter.Release()
+
+	for iter.Next() {
+		var bsfs BatchSubmitFinalitySignatures
+		if err := json.Unmarshal(iter.Value(), &bsfs); err != nil {
+			return nil, err
+		}
+		batchSubmitFinalitySignatures = append(batchSubmitFinalitySignatures, bsfs)
+	}
+
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+
+	for _, batchSignatures := range batchSubmitFinalitySignatures {
+		for _, signature := range batchSignatures.Signatures {
+			results = append(results, signature)
+		}
+	}
+
+	return results, nil
 }
 
 type SubmitFinalitySignatureMsgValue struct {
