@@ -1,7 +1,7 @@
 name: build-release
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
-
+  REPO_NAME: ${{ vars.REPO_NAME }}
 on:
   push:
     tags:
@@ -83,4 +83,4 @@ jobs:
             TAG=${{ needs.determine-tag.outputs.tag }}
             SHA=${{ needs.determine-tag.outputs.short_sha }}
           tags: |
-            manta-fp-aggregator:${{ needs.determine-tag.outputs.tag }}
+            ${{ env.REPO_NAME }}:${{ needs.determine-tag.outputs.tag }}
