@@ -37,8 +37,8 @@ type CelestiaSynchronizer struct {
 	namespace         share.Namespace
 }
 
-func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger) (*CelestiaSynchronizer, error) {
-	cli, err := client.NewClient(ctx, cfg.Manager.CelestiaConfig.DaRpc, cfg.Manager.CelestiaConfig.AuthToken)
+func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, authToken string) (*CelestiaSynchronizer, error) {
+	cli, err := client.NewClient(ctx, cfg.Manager.CelestiaConfig.DaRpc, authToken)
 	if err != nil {
 		return nil, err
 	}

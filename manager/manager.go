@@ -92,7 +92,7 @@ type Manager struct {
 	contractEventChan chan store.ContractEvent
 }
 
-func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.IWebsocketManager, cfg *config.Config, shutdown context.CancelCauseFunc, logger log.Logger, priv *ecdsa.PrivateKey) (*Manager, error) {
+func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.IWebsocketManager, cfg *config.Config, shutdown context.CancelCauseFunc, logger log.Logger, priv *ecdsa.PrivateKey, authToken string) (*Manager, error) {
 	ethCli, err := client.DialEthClientWithTimeout(ctx, cfg.EthRpc, false)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	if err != nil {
 		return nil, err
 	}
-	celestiaSynchronizer, err := synchronizer.NewCelestiaSynchronizer(ctx, cfg, db, shutdown, logger)
+	celestiaSynchronizer, err := synchronizer.NewCelestiaSynchronizer(ctx, cfg, db, shutdown, logger, authToken)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +416,7 @@ func (m *Manager) work() {
 				return
 			}
 
-			err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, *finalitySignature, symbioticFpSignCache)
+			err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, *finalitySignature, symbioticFpSignCache, m.windowPeriodStartTime, op.Timestamp.Uint64())
 			if err != nil {
 				m.log.Error("failed to store batch stake details", "err", err)
 				continue
@@ -478,6 +478,11 @@ func (m *Manager) work() {
 			}
 
 			m.log.Info("success to send verify finality signature transaction", "tx_hash", receipt.TxHash.String())
+
+			if err = m.db.DeleteStakeDetailsByTimestamp(m.babylonSynchronizer.StartTimestamp, m.windowPeriodStartTime); err != nil {
+				m.log.Error("failed to delete old stake details data", "err", err)
+				continue
+			}
 
 			m.batchId++
 			m.windowPeriodStartTime = op.Timestamp.Uint64()

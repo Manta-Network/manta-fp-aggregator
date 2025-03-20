@@ -53,7 +53,6 @@ type ContractsConfig struct {
 type CelestiaConfig struct {
 	Namespace string        `yaml:"namespace"`
 	DaRpc     string        `yaml:"da_rpc"`
-	AuthToken string        `yaml:"auth_token"`
 	Timeout   time.Duration `yaml:"timeout"`
 }
 

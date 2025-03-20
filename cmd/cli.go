@@ -25,10 +25,11 @@ import (
 )
 
 var (
-	PrivateKeyFlagName     = "private-key"
-	KeyPairFlagName        = "key-pair"
-	DefaultPubKeyFilename  = "fn_bls.pub"
-	DefaultPrivKeyFilename = "fn_bls.piv"
+	PrivateKeyFlagName        = "private-key"
+	KeyPairFlagName           = "key-pair"
+	DefaultPubKeyFilename     = "fn_bls.pub"
+	DefaultPrivKeyFilename    = "fn_bls.piv"
+	CelestiaAuthTokenFlagName = "auth-token"
 )
 
 var (
@@ -49,11 +50,16 @@ var (
 		Usage:   "key pair corresponding to l2fp aggregator",
 		EnvVars: []string{"FP_AGGREGATOR_KEY_PAIR"},
 	}
+	CelestiaAuthTokenFlag = &cli.StringFlag{
+		Name:    CelestiaAuthTokenFlagName,
+		Usage:   "the auth token of celestia node",
+		EnvVars: []string{"FP_AGGREGATOR_AUTH_TOKEN"},
+	}
 )
 
 func newCli(GitCommit string, GitDate string) *cli.App {
 	nodeFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, KeyPairFlag}
-	managerFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag}
+	managerFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, CelestiaAuthTokenFlag}
 	peerIDFlags := []cli.Flag{PrivateKeyFlag}
 	return &cli.App{
 		Version:              params.VersionWithCommit(GitCommit, GitDate),
@@ -176,6 +182,13 @@ func runManager(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Life
 		return nil, errors.New("need to config private key")
 	}
 
+	var authToken string
+	if ctx.IsSet(CelestiaAuthTokenFlagName) {
+		authToken = ctx.String(CelestiaAuthTokenFlagName)
+	} else {
+		return nil, errors.New("need to config celestia auth token")
+	}
+
 	db, err := store.NewStorage(cfg.Manager.LevelDbFolder)
 	if err != nil {
 		return nil, err
@@ -186,7 +199,7 @@ func runManager(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Life
 		return nil, err
 	}
 
-	return manager.NewFinalityManager(ctx.Context, db, wsServer, cfg, shutdown, logger, privKey)
+	return manager.NewFinalityManager(ctx.Context, db, wsServer, cfg, shutdown, logger, privKey, authToken)
 }
 
 func runParsePeerID(ctx *cli.Context) error {

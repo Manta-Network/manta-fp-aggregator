@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 const (
@@ -41,7 +42,6 @@ func (s *Storage) SetStakeDetails(msg CreateBTCDelegation, stakeType int8) error
 		if err != nil {
 			if errors.Is(err, leveldb.ErrNotFound) {
 				var sD = StakeDetails{
-					TotalBTCVote: uint64(msg.CBD.StakingValue),
 					BitcoinQuorum: []QuorumNode{
 						{
 							FpBtcPk:      msg.CBD.FpBtcPkList[0].MarshalHex(),
@@ -153,18 +153,61 @@ func (s *Storage) GetStakeDetails() (StakeDetails, error) {
 	return sD, nil
 }
 
-func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, fs WrapperSFs, symbioticFpSignCache []string) error {
+func (s *Storage) SetStakeDetailsByTimestamp(timestamp uint64) error {
 	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
-			return errors.New("the database does not have stake data")
+			return nil
+		} else {
+			return err
 		}
+	}
+	return s.db.Put(getStakeDetailsByTimestampKey(timestamp), sDB, nil)
+}
+
+func (s *Storage) GetStakeDetailsByTimestamp(start uint64, end uint64) (*StakeDetails, error) {
+	iter := s.db.NewIterator(&util.Range{Start: getStakeDetailsByTimestampKey(start), Limit: getStakeDetailsByTimestampKey(end)}, nil)
+	defer iter.Release()
+
+	for iter.Next() {
+		var sd StakeDetails
+		if err := json.Unmarshal(iter.Value(), &sd); err != nil {
+			return nil, err
+		}
+		return &sd, nil
+	}
+
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (s *Storage) DeleteStakeDetailsByTimestamp(start uint64, end uint64) error {
+	iter := s.db.NewIterator(&util.Range{Start: getStakeDetailsByTimestampKey(start), Limit: getStakeDetailsByTimestampKey(end)}, nil)
+	defer iter.Release()
+
+	for iter.Next() {
+		if err := s.db.Delete(iter.Key(), nil); err != nil {
+			return err
+		}
+	}
+
+	if err := iter.Error(); err != nil {
 		return err
 	}
 
-	var sD StakeDetails
-	if err = json.Unmarshal(sDB, &sD); err != nil {
+	return nil
+}
+
+func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, fs WrapperSFs, symbioticFpSignCache []string, start uint64, end uint64) error {
+	sD, err := s.GetStakeDetailsByTimestamp(start, end)
+	if err != nil {
 		return err
+	}
+	if sD == nil {
+		return errors.New("the database does not have stake data")
 	}
 
 	sD.BabylonBlock = fs.BlockNumber

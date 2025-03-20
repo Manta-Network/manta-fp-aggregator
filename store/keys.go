@@ -28,6 +28,7 @@ var (
 	SubmitFinalitySignatureKeyPrefix    = []byte{0x21}
 	CelestiaScannedHeightKeyPrefix      = []byte{0x22}
 	CelestiaBlockHeaderKeyPrefix        = []byte{0x23}
+	StakeDetailsByTimestampKeyPrefix    = []byte{0x24}
 )
 
 func getBabylonBlockHeaderKey(number int64) []byte {
@@ -136,4 +137,10 @@ func getCelestiaBlockHeaderKey(number uint64) []byte {
 	numberBz := make([]byte, 8)
 	binary.BigEndian.PutUint64(numberBz, number)
 	return append(CelestiaBlockHeaderKeyPrefix, numberBz...)
+}
+
+func getStakeDetailsByTimestampKey(timestamp uint64) []byte {
+	timestampBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampBz, timestamp)
+	return append(StakeDetailsByTimestampKeyPrefix, timestampBz...)
 }
