@@ -195,24 +195,38 @@ func (n *Node) sign() {
 					}
 					continue
 				}
-				if len(requestBody.TxHash) == 0 || requestBody.BlockNumber.Uint64() <= 0 {
-					n.log.Error("tx hash and babylon block number must not be nil or negative")
-					RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "tx hash and l2 block number must not be nil or negative")
-					if err := n.wsClient.SendMsg(RpcResponse); err != nil {
-						n.log.Error("failed to send msg to manager", "err", err)
+				if requestBody.SignType == common3.BabylonSignType {
+					if len(requestBody.TxHash) == 0 || requestBody.BlockNumber.Uint64() <= 0 {
+						n.log.Error("tx hash and babylon block number must not be nil or negative")
+						RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "tx hash and l2 block number must not be nil or negative")
+						if err := n.wsClient.SendMsg(RpcResponse); err != nil {
+							n.log.Error("failed to send msg to manager", "err", err)
+						}
+						continue
 					}
-					continue
+				} else if requestBody.SignType == common3.SymbioticSignType {
+					if requestBody.StateRoot != "" {
+						n.log.Error("state root must not be nil or negative")
+						RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "symbiotic window period must not be nil or negative")
+						if err := n.wsClient.SendMsg(RpcResponse); err != nil {
+							n.log.Error("failed to send msg to manager", "err", err)
+						}
+						continue
+					}
 				}
+
 				nodeSignRequest.RequestBody = requestBody
-
-				go n.handleSign(req.ID.(tdtypes.JSONRPCStringID), nodeSignRequest)
-
+				if requestBody.SignType == common3.BabylonSignType {
+					go n.handleBabylonSign(req.ID.(tdtypes.JSONRPCStringID), nodeSignRequest)
+				} else if requestBody.SignType == common3.SymbioticSignType {
+					go n.handleSymbioticSign(req.ID.(tdtypes.JSONRPCStringID), nodeSignRequest)
+				}
 			}
 		}
 	}()
 }
 
-func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
+func (n *Node) handleBabylonSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
 	var err error
 	var bSign *sign.Signature
 
@@ -274,7 +288,7 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 			case <-ticker.C:
 				height, err := n.db.GetBabylonScannedHeight()
 				if err != nil {
-					n.log.Error("node failed to get scanned height", "err", err)
+					n.log.Error("node failed to get babylon scanned height", "err", err)
 					return err
 				}
 				if requestBody.BlockNumber.Uint64() > height {
@@ -344,28 +358,60 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 	return nil
 }
 
-func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
+func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
+	var err error
 	var bSign *sign.Signature
-	if requestBody.TxType == common3.MsgSubmitFinalitySignatureType {
-		exist, sFS := n.db.GetSubmitFinalitySignatureMsg(requestBody.TxHash)
-		if exist {
-			var sigParams store.WrapperSFs
-			if err := json.Unmarshal(sFS.SFSByte, &sigParams); err != nil {
-				n.log.Error("failed to unmarshal submitFinalitySignature JSON:", "err", err)
-				return nil, err
-			}
-			decodedStateRootBytes, err := base64.StdEncoding.DecodeString(sigParams.SubmitFinalitySignature.StateRoot)
-			if err != nil {
-				n.log.Error("failed to decode stateRoot:", "err", err)
-				return nil, err
-			}
-			byteData := crypto.Keccak256Hash(decodedStateRootBytes)
-			bSign = n.keyPairs.SignMessage(byteData)
-			n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
+	requestBody := req.RequestBody.(types.SignMsgRequest)
+	bSign, err = n.SignMessage(requestBody)
+	if bSign != nil {
+		signResponse := types.SignMsgResponse{
+			G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
+			Signature: bSign.Serialize(),
+			Vote:      uint8(common2.AgreeVote),
+		}
+		RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
+		n.log.Info("node agree the msg, start to send response to finality manager")
+
+		err = n.wsClient.SendMsg(RpcResponse)
+		if err != nil {
+			n.log.Error("failed to sendMsg to finality manager", "err", err)
+			return err
 		} else {
-			return nil, nil
+			n.log.Info("send sign response to finality manager successfully ")
+			return nil
 		}
 	}
+	return nil
+}
+
+func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
+	var bSign *sign.Signature
+	if requestBody.SignType == common3.BabylonSignType {
+		if requestBody.TxType == common3.MsgSubmitFinalitySignatureType {
+			exist, sFS := n.db.GetSubmitFinalitySignatureMsg(requestBody.TxHash)
+			if exist {
+				var sigParams store.WrapperSFs
+				if err := json.Unmarshal(sFS.SFSByte, &sigParams); err != nil {
+					n.log.Error("failed to unmarshal submitFinalitySignature JSON:", "err", err)
+					return nil, err
+				}
+				decodedStateRootBytes, err := base64.StdEncoding.DecodeString(sigParams.SubmitFinalitySignature.StateRoot)
+				if err != nil {
+					n.log.Error("failed to decode stateRoot:", "err", err)
+					return nil, err
+				}
+				byteData := crypto.Keccak256Hash(decodedStateRootBytes)
+				bSign = n.keyPairs.SignMessage(byteData)
+				n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
+			} else {
+				return nil, nil
+			}
+		}
+	} else if requestBody.SignType == common3.SymbioticSignType {
+		bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
+		n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
+	}
+
 	return bSign, nil
 }
 

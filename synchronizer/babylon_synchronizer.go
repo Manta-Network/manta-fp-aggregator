@@ -54,7 +54,7 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 
 	cli, err := client.NewClientFromNode(cfg.BabylonRpc)
 	if err != nil {
-		fmt.Printf("Error creating client: %v", err)
+		fmt.Printf("Error creating babylon client: %v", err)
 	}
 
 	dbLatestHeader, err := db.GetBabylonScannedHeight()
@@ -63,7 +63,7 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 	}
 	var fromHeader *types2.Header
 	if dbLatestHeader != 0 {
-		logger.Info("sync detected last indexed block", "number", dbLatestHeader)
+		logger.Info("babylon: sync detected last indexed block", "number", dbLatestHeader)
 		height := int64(dbLatestHeader)
 		block, err := cli.Block(ctx, &height)
 		if err != nil {
@@ -71,14 +71,14 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		}
 		fromHeader = &block.Block.Header
 	} else if cfg.BabylonStartingHeight > 0 {
-		logger.Info("no sync indexed state starting from supplied babylon height", "height", cfg.BabylonStartingHeight)
+		logger.Info("babylon: no sync indexed state starting from supplied babylon height", "height", cfg.BabylonStartingHeight)
 		block, err := cli.Block(ctx, &cfg.BabylonStartingHeight)
 		if err != nil {
 			return nil, fmt.Errorf("could not fetch babylon starting block header: %w", err)
 		}
 		fromHeader = &block.Block.Header
 	} else {
-		logger.Info("no ethereum block indexed state")
+		logger.Info("no babylon block indexed state")
 	}
 
 	headerTraversal := node.NewBabylonHeaderTraversal(cli, fromHeader, big.NewInt(0))
@@ -96,7 +96,7 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		log:                  logger,
 		txMsgChan:            txMsgChan,
 		tasks: tasks.Group{HandleCrit: func(err error) {
-			shutdown(fmt.Errorf("critical error in Synchronizer: %w", err))
+			shutdown(fmt.Errorf("critical error in babylon synchronizer: %w", err))
 		}},
 	}, nil
 }
@@ -106,20 +106,20 @@ func (syncer *BabylonSynchronizer) Start() error {
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
 			if len(syncer.headers) > 0 {
-				syncer.log.Info("retrying previous batch")
+				syncer.log.Info("babylon: retrying previous batch")
 			} else {
 				newHeaders, err := syncer.HeaderTraversal.NextHeaders(syncer.blockStep)
 				if err != nil {
-					syncer.log.Error("error querying for headers", "err", err)
+					syncer.log.Error("babylon: error querying for headers", "err", err)
 					continue
 				} else if len(newHeaders) == 0 {
-					syncer.log.Warn("no new headers. syncer at head?")
+					syncer.log.Warn("babylon: no new headers. syncer at head?")
 				} else {
 					syncer.headers = newHeaders
 				}
 				latestHeader := syncer.HeaderTraversal.LatestHeader()
 				if latestHeader != nil {
-					syncer.log.Info("Latest header", "latestHeader Number", latestHeader.Height)
+					syncer.log.Info("babylon: Latest header", "latestHeader Number", latestHeader.Height)
 				}
 			}
 			err := syncer.processBatch(syncer.headers)
@@ -137,7 +137,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 		return nil
 	}
 	firstHeader, lastHeader := headers[0], headers[len(headers)-1]
-	syncer.log.Info("extracting batch", "size", len(headers), "startBlock", firstHeader.Height, "endBlock", lastHeader.Height)
+	syncer.log.Info("babylon: extracting batch", "size", len(headers), "startBlock", firstHeader.Height, "endBlock", lastHeader.Height)
 
 	headerMap := make(map[int64]*types2.Header, len(headers))
 	for i := range headers {
@@ -160,7 +160,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 
 		block, err := syncer.client.Block(syncer.resourceCtx, &headers[i].Height)
 		if err != nil {
-			syncer.log.Error("failed to get block", "err", err, "height", headers[i].Height)
+			syncer.log.Error("babylon: failed to get block", "err", err, "height", headers[i].Height)
 			return err
 		}
 		for _, transaction := range block.Block.Txs {
@@ -170,7 +170,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 			for _, msg := range tx.Body.Messages {
 				if validMsgTypes[msg.TypeUrl] {
 					if err != nil {
-						syncer.log.Error("failed to marshal event", "err", err)
+						syncer.log.Error("babylon: failed to marshal event", "err", err)
 						continue
 					}
 					txMessage := store.TxMessage{
@@ -188,7 +188,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 					if sMsg.Contract == syncer.opFinalityGadgetAddr {
 						var sigParams store.WrapperSFs
 						if err = json.Unmarshal(sMsg.SubmitFinalitySignature, &sigParams); err != nil {
-							syncer.log.Error("failed to unmarshal submitFinalitySignature JSON:", "err", err)
+							syncer.log.Error("babylon: failed to unmarshal submitFinalitySignature JSON:", "err", err)
 							return err
 						}
 						if sigParams.SubmitFinalitySignature.StateRoot != "" {
@@ -201,7 +201,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 							}
 							decodedStateRootBytes, err := base64.StdEncoding.DecodeString(sigParams.SubmitFinalitySignature.StateRoot)
 							if err != nil {
-								syncer.log.Error("failed to decode stateRoot:", "err", err)
+								syncer.log.Error("babylon: failed to decode stateRoot:", "err", err)
 								return err
 							}
 							sigParams.SubmitFinalitySignature.StateRoot = common2.Bytes2Hex(decodedStateRootBytes)
@@ -209,12 +209,12 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 							sigParams.TransactionHash = transaction.Hash()
 							sigParams.BlockNumber = uint64(block.Block.Height)
 							if err = syncer.db.SetBabylonSubmitFinalitySignature(sigParams); err != nil {
-								syncer.log.Error("failed to store submitFinalitySignature", "err", err)
+								syncer.log.Error("babylon: failed to store submitFinalitySignature", "err", err)
 								return err
 							}
 							txMessages = append(txMessages, txMessage)
 							syncer.txMsgChan <- txMessage
-							syncer.log.Info("success to store submitFinalitySignature", "timestamp", sigParams.Timestamp)
+							syncer.log.Info("babylon: success to store submitFinalitySignature", "timestamp", sigParams.Timestamp)
 						}
 					}
 				}

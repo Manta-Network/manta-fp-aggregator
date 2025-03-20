@@ -9,59 +9,55 @@ import (
 
 	"github.com/Manta-Network/manta-fp-aggregator/common/bigint"
 
-	"github.com/cometbft/cometbft/rpc/client/http"
-	types2 "github.com/cometbft/cometbft/types"
+	client "github.com/celestiaorg/celestia-openrpc"
+	"github.com/celestiaorg/celestia-openrpc/types/header"
 )
 
-type BabylonHeaderTraversal struct {
-	babylonClient *http.HTTP
+type CelestiaHeaderTraversal struct {
+	celestiaClient *client.Client
 
-	latestHeader        *types2.Header
-	lastTraversedHeader *types2.Header
+	latestHeader        *header.ExtendedHeader
+	lastTraversedHeader *header.ExtendedHeader
 
 	blockConfirmationDepth *big.Int
 }
 
-func NewBabylonHeaderTraversal(babylonClient *http.HTTP, fromHeader *types2.Header, confDepth *big.Int) *BabylonHeaderTraversal {
-	return &BabylonHeaderTraversal{
-		babylonClient:          babylonClient,
+func NewCelestiaHeaderTraversal(celestiaClient *client.Client, fromHeader *header.ExtendedHeader, confDepth *big.Int) *CelestiaHeaderTraversal {
+	return &CelestiaHeaderTraversal{
+		celestiaClient:         celestiaClient,
 		lastTraversedHeader:    fromHeader,
 		blockConfirmationDepth: confDepth,
 	}
 }
 
-func (f *BabylonHeaderTraversal) LatestHeader() *types2.Header {
+func (f *CelestiaHeaderTraversal) LatestHeader() *header.ExtendedHeader {
 	return f.latestHeader
 }
 
-func (f *BabylonHeaderTraversal) LastTraversedHeader() *types2.Header {
+func (f *CelestiaHeaderTraversal) LastTraversedHeader() *header.ExtendedHeader {
 	return f.lastTraversedHeader
 }
 
-func (f *BabylonHeaderTraversal) NextHeaders(maxSize uint64) ([]types2.Header, error) {
+func (f *CelestiaHeaderTraversal) NextHeaders(maxSize uint64) ([]*header.ExtendedHeader, error) {
 	ctx := context.Background()
-	status, err := f.babylonClient.Status(ctx)
+	latestHeader, err := f.celestiaClient.Header.LocalHead(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query latest block: %w", err)
-	} else if &status.SyncInfo.LatestBlockHeight == nil {
+	} else if latestHeader == nil {
 		return nil, fmt.Errorf("latest header unreported")
 	} else {
-		block, err := f.babylonClient.Block(ctx, &status.SyncInfo.LatestBlockHeight)
-		if err != nil {
-			return nil, fmt.Errorf("unable to query latest block: %w", err)
-		}
-		f.latestHeader = &block.Block.Header
+		f.latestHeader = latestHeader
 	}
-	log.Info("babylon header traversal db latest header: ", "height", status.SyncInfo.LatestBlockHeight)
+	log.Info("celestia header traversal db latest header: ", "height", latestHeader.Height())
 
-	endHeight := new(big.Int).Sub(big.NewInt(status.SyncInfo.LatestBlockHeight), f.blockConfirmationDepth)
+	endHeight := new(big.Int).Sub(big.NewInt(int64(latestHeader.Height())), f.blockConfirmationDepth)
 	if endHeight.Sign() < 0 {
 		// No blocks with the provided confirmation depth available
 		return nil, nil
 	}
 
 	if f.lastTraversedHeader != nil {
-		cmp := big.NewInt(f.lastTraversedHeader.Height).Cmp(endHeight)
+		cmp := big.NewInt(int64(f.lastTraversedHeader.Height())).Cmp(endHeight)
 		if cmp == 0 {
 			return nil, nil
 		} else if cmp > 0 {
@@ -71,7 +67,7 @@ func (f *BabylonHeaderTraversal) NextHeaders(maxSize uint64) ([]types2.Header, e
 
 	nextHeight := bigint.Zero
 	if f.lastTraversedHeader != nil {
-		nextHeight = new(big.Int).Add(big.NewInt(f.lastTraversedHeader.Height), bigint.One)
+		nextHeight = new(big.Int).Add(big.NewInt(int64(f.lastTraversedHeader.Height())), bigint.One)
 	}
 
 	endHeight = bigint.Clamp(nextHeight, endHeight, maxSize)
@@ -95,11 +91,11 @@ func (f *BabylonHeaderTraversal) NextHeaders(maxSize uint64) ([]types2.Header, e
 		log.Error("Err header traversal and provider mismatched state", "parentHash = ", headers[0].LastBlockID.Hash.String(), "hash", f.lastTraversedHeader.Hash().String())
 		return nil, ErrHeaderTraversalAndProviderMismatchedState
 	}
-	f.lastTraversedHeader = &headers[numHeaders-1]
+	f.lastTraversedHeader = headers[numHeaders-1]
 	return headers, nil
 }
 
-func (f *BabylonHeaderTraversal) checkHeaderListByHash(dbLatestHeader *types2.Header, headerList []types2.Header) error {
+func (f *CelestiaHeaderTraversal) checkHeaderListByHash(dbLatestHeader *header.ExtendedHeader, headerList []*header.ExtendedHeader) error {
 	if len(headerList) == 0 {
 		return nil
 	}
@@ -122,18 +118,28 @@ func (f *BabylonHeaderTraversal) checkHeaderListByHash(dbLatestHeader *types2.He
 	return nil
 }
 
-func (f *BabylonHeaderTraversal) ChangeLastTraversedHeaderByDelAfter(dbLatestHeader *types2.Header) {
+func (f *CelestiaHeaderTraversal) ChangeLastTraversedHeaderByDelAfter(dbLatestHeader *header.ExtendedHeader) {
 	f.lastTraversedHeader = dbLatestHeader
 }
 
-func (f *BabylonHeaderTraversal) BlockHeadersByRange(ctx context.Context, nextHeight *big.Int, endHeight *big.Int) ([]types2.Header, error) {
-	var headers []types2.Header
-	for blockHeight := nextHeight.Int64(); blockHeight <= endHeight.Int64(); blockHeight++ {
-		block, err := f.babylonClient.Block(ctx, &blockHeight)
+func (f *CelestiaHeaderTraversal) BlockHeadersByRange(ctx context.Context, nextHeight *big.Int, endHeight *big.Int) ([]*header.ExtendedHeader, error) {
+	var headers []*header.ExtendedHeader
+	if nextHeight.Cmp(endHeight) == 0 {
+		nextHeader, err := f.celestiaClient.Header.GetByHeight(ctx, endHeight.Uint64())
 		if err != nil {
-			return nil, fmt.Errorf("failed to get block, height = %v , err = %v", blockHeight, err)
+			return nil, fmt.Errorf("failed to get celestia header, height = %v , err = %v", nextHeight, err)
 		}
-		headers = append(headers, block.Block.Header)
+		headers = append(headers, nextHeader)
+		return headers, nil
+	}
+
+	nextHeader, err := f.celestiaClient.Header.GetByHeight(ctx, nextHeight.Uint64()-1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get celestia header, height = %v , err = %v", nextHeight, err)
+	}
+	headers, err = f.celestiaClient.Header.GetRangeByHeight(ctx, nextHeader, endHeight.Uint64())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get celestia header by range, next_height = %v , end_height = %v , err = %v", nextHeight, endHeight, err)
 	}
 	return headers, nil
 }

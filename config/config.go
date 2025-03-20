@@ -8,16 +8,18 @@ import (
 )
 
 type Config struct {
-	Node                  NodeConfig      `yaml:"node"`
-	Manager               ManagerConfig   `yaml:"manager"`
-	Contracts             ContractsConfig `yaml:"contracts"`
-	EthStartingHeight     int64           `yaml:"eth_starting_height"`
-	BabylonStartingHeight int64           `yaml:"babylon_starting_height"`
-	EthBlockStep          uint64          `yaml:"eth_block_step"`
-	BabylonBlockStep      uint64          `yaml:"babylon_block_step"`
-	BabylonRpc            string          `yaml:"babylon_rpc"`
-	EthRpc                string          `yaml:"eth_rpc"`
-	EthChainID            uint64          `yaml:"eth_chain_id"`
+	Node                   NodeConfig      `yaml:"node"`
+	Manager                ManagerConfig   `yaml:"manager"`
+	Contracts              ContractsConfig `yaml:"contracts"`
+	EthStartingHeight      int64           `yaml:"eth_starting_height"`
+	BabylonStartingHeight  int64           `yaml:"babylon_starting_height"`
+	CelestiaStartingHeight int64           `yaml:"celestia_starting_height"`
+	EthBlockStep           uint64          `yaml:"eth_block_step"`
+	BabylonBlockStep       uint64          `yaml:"babylon_block_step"`
+	CelestiaBlockStep      uint64          `yaml:"celestia_block_step"`
+	BabylonRpc             string          `yaml:"babylon_rpc"`
+	EthRpc                 string          `yaml:"eth_rpc"`
+	EthChainID             uint64          `yaml:"eth_chain_id"`
 }
 
 type NodeConfig struct {
@@ -30,7 +32,6 @@ type NodeConfig struct {
 
 type ManagerConfig struct {
 	LevelDbFolder         string         `yaml:"level_db_folder"`
-	SymbioticFpRpc        string         `yaml:"symbiotic_fp_rpc"`
 	WsAddr                string         `yaml:"ws_addr"`
 	HttpAddr              string         `yaml:"http_addr"`
 	SymbioticStakeUrl     string         `yaml:"symbiotic_stake_url"`
@@ -66,17 +67,17 @@ func DefaultConfiguration() *Config {
 			WaitScanInterval: 3,
 		},
 		Manager: ManagerConfig{
-			LevelDbFolder:  "manager_storage",
-			SymbioticFpRpc: "127.0.0.1:34500",
-			WsAddr:         "127.0.0.1:8081",
-			SignTimeout:    20,
-			FPTimeout:      30,
+			LevelDbFolder: "manager_storage",
+			WsAddr:        "127.0.0.1:8081",
+			SignTimeout:   20,
+			FPTimeout:     30,
 		},
-		EthStartingHeight:     1,
-		BabylonStartingHeight: 1,
-		EthBlockStep:          100,
-		BabylonBlockStep:      10,
-		EthChainID:            1,
+		EthStartingHeight:      1,
+		BabylonStartingHeight:  1,
+		CelestiaStartingHeight: 1,
+		EthBlockStep:           100,
+		BabylonBlockStep:       10,
+		EthChainID:             1,
 	}
 }
 

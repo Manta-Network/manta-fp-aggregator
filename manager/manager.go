@@ -30,7 +30,6 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/client"
 	common2 "github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
-	"github.com/Manta-Network/manta-fp-aggregator/manager/celestia"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/router"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/sign"
@@ -42,10 +41,7 @@ import (
 	types2 "github.com/babylonlabs-io/babylon/x/btcstaking/types"
 	"github.com/ethereum-optimism/optimism/op-proposer/bindings"
 	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc"
 )
-
-const MaxRecvMessageSize = 1024 * 1024 * 300
 
 var (
 	errNotEnoughSignNode = errors.New("not enough available nodes to sign")
@@ -61,8 +57,6 @@ type Manager struct {
 	NodeMembers              []string
 	httpAddr                 string
 	httpServer               *http.Server
-	grpcAddr                 string
-	gs                       *grpc.Server
 	sStakeUrl                string
 	mu                       sync.Mutex
 	windowPeriodStartTime    uint64
@@ -75,7 +69,6 @@ type Manager struct {
 	privateKey      *ecdsa.PrivateKey
 	from            common.Address
 	ethClient       *ethclient.Client
-	celestiaDa      *celestia.DAClient
 	frmContract     *finality.FinalityRelayerManager
 	frmContractAddr common.Address
 	rawFrmContract  *bind.BoundContract
@@ -90,9 +83,10 @@ type Manager struct {
 	signTimeout time.Duration
 	fPTimeout   time.Duration
 
-	babylonSynchronizer *synchronizer.BabylonSynchronizer
-	ethSynchronizer     *synchronizer.EthSynchronizer
-	ethEventProcess     *synchronizer.EthEventProcess
+	babylonSynchronizer  *synchronizer.BabylonSynchronizer
+	ethSynchronizer      *synchronizer.EthSynchronizer
+	ethEventProcess      *synchronizer.EthEventProcess
+	celestiaSynchronizer *synchronizer.CelestiaSynchronizer
 
 	txMsgChan         chan store.TxMessage
 	contractEventChan chan store.ContractEvent
@@ -131,10 +125,10 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		ethCli,
 	)
 
-	//msmContract, err := sfp.NewMantaStakingMiddleware(common.HexToAddress(cfg.Contracts.MsmContractAddress), ethCli)
-	//if err != nil {
-	//	return nil, err
-	//}
+	msmContract, err := sfp.NewMantaStakingMiddleware(common.HexToAddress(cfg.Contracts.MsmContractAddress), ethCli)
+	if err != nil {
+		return nil, err
+	}
 
 	l2ooContract, err := bindings.NewL2OutputOracle(common.HexToAddress(cfg.Contracts.L2ooContractAddress), ethCli)
 	if err != nil {
@@ -173,42 +167,41 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	if err != nil {
 		return nil, err
 	}
-	celestiaDa, err := celestia.NewDAClient(cfg)
+	celestiaSynchronizer, err := synchronizer.NewCelestiaSynchronizer(ctx, cfg, db, shutdown, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Manager{
-		done:                make(chan struct{}),
-		log:                 logger,
-		db:                  db,
-		wsServer:            wsServer,
-		httpAddr:            cfg.Manager.HttpAddr,
-		grpcAddr:            cfg.Manager.SymbioticFpRpc,
-		sStakeUrl:           cfg.Manager.SymbioticStakeUrl,
-		celestiaDa:          celestiaDa,
-		NodeMembers:         nodeMemberS,
-		ctx:                 ctx,
-		privateKey:          priv,
-		from:                crypto.PubkeyToAddress(priv.PublicKey),
-		signTimeout:         cfg.Manager.SignTimeout,
-		fPTimeout:           cfg.Manager.FPTimeout,
-		babylonSynchronizer: babylonSynchronizer,
-		ethSynchronizer:     ethSynchronizer,
-		ethEventProcess:     ethEventProcess,
-		txMsgChan:           txMsgChan,
-		contractEventChan:   contractEventChan,
-		ethChainID:          cfg.EthChainID,
-		ethClient:           ethCli,
-		frmContract:         frmContract,
-		frmContractAddr:     common.HexToAddress(cfg.Contracts.FrmContractAddress),
-		rawFrmContract:      rawfrmContract,
-		barContract:         barContract,
-		barContractAddr:     common.HexToAddress(cfg.Contracts.BarContactAddress),
-		rawBarContract:      rawBarContract,
-		//msmContract:         msmContract,
-		batchId: batchId.Uint64(),
-		l2oo:    l2ooContract,
+		done:                 make(chan struct{}),
+		log:                  logger,
+		db:                   db,
+		wsServer:             wsServer,
+		httpAddr:             cfg.Manager.HttpAddr,
+		sStakeUrl:            cfg.Manager.SymbioticStakeUrl,
+		NodeMembers:          nodeMemberS,
+		ctx:                  ctx,
+		privateKey:           priv,
+		from:                 crypto.PubkeyToAddress(priv.PublicKey),
+		signTimeout:          cfg.Manager.SignTimeout,
+		fPTimeout:            cfg.Manager.FPTimeout,
+		babylonSynchronizer:  babylonSynchronizer,
+		ethSynchronizer:      ethSynchronizer,
+		ethEventProcess:      ethEventProcess,
+		celestiaSynchronizer: celestiaSynchronizer,
+		txMsgChan:            txMsgChan,
+		contractEventChan:    contractEventChan,
+		ethChainID:           cfg.EthChainID,
+		ethClient:            ethCli,
+		frmContract:          frmContract,
+		frmContractAddr:      common.HexToAddress(cfg.Contracts.FrmContractAddress),
+		rawFrmContract:       rawfrmContract,
+		barContract:          barContract,
+		barContractAddr:      common.HexToAddress(cfg.Contracts.BarContactAddress),
+		rawBarContract:       rawBarContract,
+		msmContract:          msmContract,
+		batchId:              batchId.Uint64(),
+		l2oo:                 l2ooContract,
 	}, nil
 }
 
@@ -246,45 +239,19 @@ func (m *Manager) Start(ctx context.Context) error {
 	}()
 	m.httpServer = s
 
-	//go func(m *Manager) {
-	//	m.log.Info("start rpc server ", "addr", m.grpcAddr)
-	//
-	//	listener, err := net.Listen("tcp", m.grpcAddr)
-	//	if err != nil {
-	//		m.log.Error("Could not start tcp listener")
-	//	}
-	//
-	//	opt := grpc.MaxRecvMsgSize(MaxRecvMessageSize)
-	//
-	//	gs := grpc.NewServer(
-	//		opt,
-	//		grpc.ChainUnaryInterceptor(),
-	//	)
-	//	reflection.Register(gs)
-	//	pb.RegisterCelestiaServiceServer(gs, m)
-	//
-	//	m.log.Info("grpc info ", "address", listener.Addr().String())
-	//	if err := gs.Serve(listener); err != nil {
-	//		m.log.Error("Could not start GRPC server")
-	//	}
-	//	m.gs = gs
-	//}(m)
-
 	if m.batchId == 0 {
 		m.isFirstBatch = true
 	}
 
 	if err := m.getWindowPeriodStartTime(); err != nil {
 		m.log.Error("Could not get window period start time", "err", err)
-		// for test
-		m.outputSubmissionInterval = 360
-		m.windowPeriodStartTime = uint64(time.Now().Unix())
-		//return err
+		return err
 	}
 
 	go m.babylonSynchronizer.Start()
 	go m.ethSynchronizer.Start()
 	go m.ethEventProcess.Start()
+	go m.celestiaSynchronizer.Start()
 
 	m.wg.Add(1)
 	go m.work()
@@ -306,6 +273,10 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.log.Error("eth synchronizer server forced to shutdown", "err", err)
 		return err
 	}
+	if err := m.celestiaSynchronizer.Close(); err != nil {
+		m.log.Error("celestia synchronizer server forced to shutdown", "err", err)
+		return err
+	}
 	m.stopped.Store(true)
 	m.log.Info("Server exiting")
 	return nil
@@ -316,26 +287,26 @@ func (m *Manager) Stopped() bool {
 }
 
 func (m *Manager) getWindowPeriodStartTime() error {
-	latestScannedHeight, err := m.db.GetEthScannedHeight()
+	latestHeight, err := m.ethClient.BlockNumber(m.ctx)
 	if err != nil {
-		m.log.Error("failed to get latest scanned height", "err", err)
+		m.log.Error("failed to get eth latest block height", "err", err)
 		return err
 	}
 
 	cOpts := &bind.CallOpts{
-		BlockNumber: big.NewInt(int64(latestScannedHeight)),
+		BlockNumber: big.NewInt(int64(latestHeight)),
 		From:        m.from,
 	}
 
 	index, err := m.l2oo.LatestOutputIndex(cOpts)
 	if err != nil {
-		m.log.Error("failed to get latest output index", "height", latestScannedHeight, "err", err)
+		m.log.Error("failed to get latest output index", "height", latestHeight, "err", err)
 		return err
 	}
 
 	output, err := m.l2oo.GetL2Output(cOpts, index)
 	if err != nil {
-		m.log.Error("failed to get l2 output", "height", latestScannedHeight, "err", err)
+		m.log.Error("failed to get l2 output", "height", latestHeight, "err", err)
 		return err
 	}
 
@@ -364,9 +335,6 @@ func (m *Manager) work() {
 				}
 			}(txMsg)
 		case <-fpTicker.C:
-			fmt.Println(m.windowPeriodStartTime)
-			fmt.Println(m.babylonSynchronizer.HeaderTraversal.LatestHeader().Time.Unix())
-			fmt.Println(m.babylonSynchronizer.HeaderTraversal.LatestHeader().Height)
 			op, err := m.db.GetLatestUnprocessedStateRoot(m.windowPeriodStartTime, m.outputSubmissionInterval)
 			if err != nil {
 				m.log.Error("failed to get latest unprocessed state root", "err", err)
@@ -383,38 +351,42 @@ func (m *Manager) work() {
 				continue
 			}
 
-			if uint64(m.babylonSynchronizer.HeaderTraversal.LatestHeader().Time.Unix()) < op.Timestamp.Uint64() {
-				m.log.Info(fmt.Sprintf("waiting for the babylon block to be synchronized to the timestamp at %v, scanned timestamp: %v", op.Timestamp.Uint64(), m.babylonSynchronizer.HeaderTraversal.LatestHeader().Time.Unix()))
+			if uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) < op.Timestamp.Uint64() {
+				m.log.Info(fmt.Sprintf("waiting for the babylon block to be synchronized to the timestamp at %v, scanned timestamp: %v", op.Timestamp.Uint64(), m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()))
+				continue
+			}
+
+			if uint64(m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) < op.Timestamp.Uint64() {
+				m.log.Info(fmt.Sprintf("waiting for the celestia block to be synchronized to the timestamp at %v, scanned timestamp: %v", op.Timestamp.Uint64(), m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()))
 				continue
 			}
 
 			m.log.Info("start counting fp signatures", "start", m.windowPeriodStartTime, "end", op.Timestamp.Uint64())
 
-			finalitySignature, fpSignCache, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
+			finalitySignature, babylonFpSignCache, symbioticFpSignCache, symbioticFpTotalStakeAmount, voteSR, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
 			if err != nil {
 				m.log.Error("failed to get max sign state root", "err", err)
 				continue
 			}
 
-			if finalitySignature == nil {
-				m.log.Warn("no fp signature, skip this state root", "state_root", op.StateRoot)
-				m.windowPeriodStartTime = op.Timestamp.Uint64()
-				continue
-			}
-
-			fmt.Println("==========")
-			fmt.Println(finalitySignature)
-			fmt.Println(fpSignCache)
-			fmt.Println("==========")
-
-			var request types.SignMsgRequest
 			var signature *sign.G1Point
 			var g2Point *sign.G2Point
 			var NonSignerPubkeys []finality.BN254G1Point
 
-			request.BlockNumber = big.NewInt(int64(finalitySignature.BlockNumber))
-			request.TxType = common2.MsgSubmitFinalitySignatureType
-			request.TxHash = finalitySignature.TransactionHash
+			var request types.SignMsgRequest
+			if finalitySignature != nil {
+				request.SignType = common2.BabylonSignType
+				request.BlockNumber = big.NewInt(int64(finalitySignature.BlockNumber))
+				request.TxType = common2.MsgSubmitFinalitySignatureType
+				request.TxHash = finalitySignature.TransactionHash
+			} else if len(symbioticFpSignCache) != 0 {
+				request.SignType = common2.SymbioticSignType
+				request.StateRoot = voteSR
+			} else {
+				m.log.Warn("no fp signature, skip this state root", "state_root", op.StateRoot)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
+				continue
+			}
 
 			res, err := m.SignMsgBatch(request)
 			if errors.Is(err, errNotEnoughSignNode) || errors.Is(err, errNotEnoughVoteNode) {
@@ -444,7 +416,7 @@ func (m *Manager) work() {
 				return
 			}
 
-			err = m.db.SetBatchStakeDetails(m.batchId, fpSignCache, *finalitySignature)
+			err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, *finalitySignature, symbioticFpSignCache)
 			if err != nil {
 				m.log.Error("failed to store batch stake details", "err", err)
 				continue
@@ -455,13 +427,12 @@ func (m *Manager) work() {
 				m.log.Error("failed to new transact opts", "err", err)
 				continue
 			}
-			fmt.Println(finalitySignature.SubmitFinalitySignature.StateRoot)
 			finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
 				StateRoot:     common.HexToHash(finalitySignature.SubmitFinalitySignature.StateRoot),
 				L2BlockNumber: big.NewInt(int64(finalitySignature.SubmitFinalitySignature.L2BlockNumber)),
 				L1BlockHash:   common.HexToHash(finalitySignature.SubmitFinalitySignature.L1BlockHash),
 				L1BlockNumber: big.NewInt(int64(finalitySignature.SubmitFinalitySignature.L1BlockNumber)),
-				MsgHash:       crypto.Keccak256Hash(common.Hex2Bytes(finalitySignature.SubmitFinalitySignature.StateRoot)),
+				MsgHash:       crypto.Keccak256Hash(common.Hex2Bytes(voteSR)),
 			}
 
 			totalBtcStake, err := m.db.GetBatchTotalBabylonStakeAmount(m.batchId)
@@ -469,11 +440,6 @@ func (m *Manager) work() {
 				m.log.Error("failed to get total btc stake", "err", err)
 				continue
 			}
-			//symbioticStake, err := m.db.GetSymbioticFpIds(m.batchId)
-			//if err != nil {
-			//	m.log.Error("failed to get symbiotic stake", "err", err)
-			//	continue
-			//}
 
 			finalityNonSignerAndSignature := finality.IBLSApkRegistryFinalityNonSignerAndSignature{
 				NonSignerPubkeys: NonSignerPubkeys,
@@ -486,7 +452,7 @@ func (m *Manager) work() {
 					Y: signature.Y.BigInt(new(big.Int)),
 				},
 				TotalBtcStake:   big.NewInt(int64(totalBtcStake)),
-				TotalMantaStake: big.NewInt(1),
+				TotalMantaStake: symbioticFpTotalStakeAmount,
 			}
 
 			tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(1))
@@ -611,78 +577,6 @@ func (m *Manager) storeDelegateMsgData(txMsg store.TxMessage) error {
 	}
 }
 
-//func (m *Manager) StateRootSignIDs(ctx context.Context, request *pb.StateRootSignIDsRequest) (*pb.StateRootSignIDsResponse, error) {
-//	if request == nil {
-//		log.Warn("invalid request: request body is empty")
-//		return nil, errors.New("invalid request: request body is empty")
-//	}
-//
-//	m.log.Info("celestia: blob request", "id", request.Ids)
-//
-//	idsByte, err := hex.DecodeString(request.Ids)
-//	if err != nil {
-//		m.log.Error("failed to decode symbiotic fp ids to byte", "err", err)
-//		return nil, err
-//	}
-//	ctx2, cancel := context.WithTimeout(ctx, m.celestiaDa.GetTimeout)
-//	blobs, err := m.celestiaDa.Client.Get(ctx2, [][]byte{idsByte}, m.celestiaDa.Namespace)
-//	cancel()
-//	if err != nil || len(blobs) != 1 {
-//		m.log.Error(fmt.Errorf("celestia: failed to resolve frame: %w, len= %v", err, len(blobs)).Error())
-//		return nil, fmt.Errorf("celestia: failed to resolve frame: %w, len= %v", err, len(blobs))
-//	}
-//
-//	var signRequest store.SignRequest
-//	err = json.Unmarshal(blobs[0], &signRequest)
-//	if err != nil {
-//		m.log.Error("failed to unmarshal symbiotic fp ids to sign request", "err", err)
-//		return nil, err
-//	}
-//
-//	cOpts := &bind.CallOpts{
-//		BlockNumber: big.NewInt(int64(request.L1BlockNumber)),
-//		From:        m.from,
-//	}
-//	operator, err := m.msmContract.Operators(cOpts, common.HexToAddress(signRequest.SignAddress))
-//	if err != nil {
-//		return nil, fmt.Errorf("failed to get operator info at block: %v, err: %v", cOpts.BlockNumber, err)
-//	}
-//
-//	if operator.OperatorName == "" {
-//		m.log.Warn(fmt.Sprintf("node %s is not operator", signRequest.SignAddress))
-//		return nil, nil
-//	} else {
-//		if operator.Paused {
-//			m.log.Warn("operator is paused", "address", signRequest.SignAddress)
-//			return nil, nil
-//		}
-//	}
-//
-//	stakeAmount, err := m.getSymbioticOperatorStakeAmount(signRequest.SignAddress)
-//	if err != nil {
-//		m.log.Error("failed to get operator stake amount", "address", signRequest.SignAddress, "err", err)
-//		return nil, nil
-//	}
-//
-//	var sFI = store.SymbioticFpIds{
-//		BatchId:          m.batchId,
-//		TotalStakeAmount: stakeAmount,
-//	}
-//
-//	sFI.SignRequests = append(sFI.SignRequests, signRequest)
-//
-//	err = m.db.SetSymbioticFpIds(sFI)
-//	if err != nil {
-//		m.log.Error("failed to store symbiotic fp ids", "err", err)
-//		return nil, err
-//	}
-//
-//	return &pb.StateRootSignIDsResponse{
-//		Success: true,
-//		Message: "call state root sign ids success",
-//	}, nil
-//}
-
 func randomRequestId() string {
 	code := fmt.Sprintf("%04v", rand.New(rand.NewSource(time.Now().UnixNano())).Int31n(10000))
 	return time.Now().Format("20060102150405") + code
@@ -697,33 +591,69 @@ func ExistsIgnoreCase(slice []string, target string) bool {
 	return false
 }
 
-func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, map[string]string, error) {
+func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, map[string]string, []string, *big.Int, string, error) {
 	stateRootCountCache := make(map[string]int64)
-	stateRootMsgCache := make(map[string]store.WrapperSFs)
-	fpSignCache := make(map[string]string)
+	stateRootMsgCache := make(map[string]*store.WrapperSFs)
+	babylonFpSignCache := make(map[string]string)
+	symbioticFpSignCache := make(map[string]string)
+	var symbioticFpSignList []string
+	var totalSymbioticFpStaked = big.NewInt(0)
 
-	finalitySignatures, err := m.db.GetBabylonFinalitySignatureByTimestamp(start, end)
+	babylonFinalitySignatures, err := m.db.GetBabylonFinalitySignatureByTimestamp(start, end)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, "", err
+	}
+
+	symbioticFinalitySignatures, err := m.db.GetSymbioticFpBlobsByTimestamp(start, end)
+	if err != nil {
+		return nil, nil, nil, nil, "", err
 	}
 
 	op, err := m.db.GetOutputProposedByTimestamp(start)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, "", err
 	}
 
-	for _, fs := range finalitySignatures {
-		fmt.Println("=========333333=========")
-		fmt.Println(fs)
-		fmt.Println("=========333333=========")
-		if fs.SubmitFinalitySignature.L2BlockNumber == op.L2BlockNumber.Uint64() {
-			if stateRootCountCache[fs.SubmitFinalitySignature.StateRoot] == 0 {
-				stateRootMsgCache[fs.SubmitFinalitySignature.StateRoot] = fs
+	for _, bfs := range babylonFinalitySignatures {
+		if bfs.SubmitFinalitySignature.L2BlockNumber == op.L2BlockNumber.Uint64() {
+			if stateRootCountCache[bfs.SubmitFinalitySignature.StateRoot] == 0 {
+				stateRootMsgCache[bfs.SubmitFinalitySignature.StateRoot] = &bfs
 			}
-			stateRootCountCache[fs.SubmitFinalitySignature.StateRoot]++
-			fpSignCache[fs.SubmitFinalitySignature.FpPubkeyHex] = fs.SubmitFinalitySignature.StateRoot
+			stateRootCountCache[bfs.SubmitFinalitySignature.StateRoot]++
+			if babylonFpSignCache[bfs.SubmitFinalitySignature.FpPubkeyHex] == "" {
+				babylonFpSignCache[bfs.SubmitFinalitySignature.FpPubkeyHex] = bfs.SubmitFinalitySignature.StateRoot
+			}
 		}
 	}
+
+	for _, sfs := range symbioticFinalitySignatures {
+		if sfs.SignRequests.StateRoot == op.StateRoot {
+			cOpts := &bind.CallOpts{
+				BlockNumber: big.NewInt(int64(op.L1BlockNumber)),
+				From:        m.from,
+			}
+			operator, err := m.msmContract.Operators(cOpts, common.HexToAddress(sfs.SignRequests.SignAddress))
+			if err != nil {
+				m.log.Error(fmt.Errorf("failed to get operator info at block: %v, err: %v", cOpts.BlockNumber, err).Error())
+				continue
+			}
+
+			if operator.OperatorName == "" {
+				m.log.Warn(fmt.Sprintf("node %s is not operator", sfs.SignRequests.SignAddress))
+				continue
+			} else {
+				if operator.Paused {
+					m.log.Warn("operator is paused", "address", sfs.SignRequests.SignAddress)
+					continue
+				}
+			}
+			if symbioticFpSignCache[sfs.SignRequests.SignAddress] == "" {
+				stateRootCountCache[sfs.SignRequests.StateRoot]++
+				symbioticFpSignCache[sfs.SignRequests.SignAddress] = sfs.SignRequests.StateRoot
+			}
+		}
+	}
+
 	var maxSignStateRoot string
 	var maxStateRootCount int64
 
@@ -735,7 +665,21 @@ func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, map
 	}
 	submitFinalitySignature := stateRootMsgCache[maxSignStateRoot]
 
-	return &submitFinalitySignature, fpSignCache, nil
+	for address, v := range symbioticFpSignCache {
+		if v == maxSignStateRoot {
+			amount, err := m.getSymbioticOperatorStakeAmount(address)
+			if err != nil {
+				m.log.Error("failed to get operator stake amount", "address", address, "err", err)
+				continue
+			}
+			if amount.Cmp(big.NewInt(0)) <= 0 {
+				symbioticFpSignList = append(symbioticFpSignList, address)
+				totalSymbioticFpStaked = new(big.Int).Add(totalSymbioticFpStaked, amount)
+			}
+		}
+	}
+
+	return submitFinalitySignature, babylonFpSignCache, symbioticFpSignList, totalSymbioticFpStaked, maxSignStateRoot, nil
 }
 
 func (m *Manager) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {

@@ -4,6 +4,7 @@ go 1.23.4
 
 require (
 	github.com/babylonlabs-io/babylon v0.18.0
+	github.com/celestiaorg/celestia-openrpc v0.5.0
 	github.com/celestiaorg/go-square v1.1.1
 	github.com/cometbft/cometbft v0.38.15
 	github.com/cosmos/cosmos-sdk v0.50.9
@@ -23,13 +24,34 @@ require (
 )
 
 require (
+	github.com/benbjohnson/clock v1.3.5 // indirect
+	github.com/celestiaorg/go-fraud v0.2.0 // indirect
+	github.com/celestiaorg/go-header v0.4.1 // indirect
+	github.com/celestiaorg/go-square/merkle v0.0.0-20240429192549-dea967e1533b // indirect
+	github.com/celestiaorg/merkletree v0.0.0-20210714075610-a84dc3ddbbe4 // indirect
 	github.com/celestiaorg/nmt v0.21.0 // indirect
+	github.com/celestiaorg/rsmt2d v0.11.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/filecoin-project/go-jsonrpc v0.6.0 // indirect
+	github.com/go-logr/logr v1.4.1 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/ipfs/go-datastore v0.6.0 // indirect
 	github.com/ipfs/go-log/v2 v2.5.1 // indirect
+	github.com/jbenet/goprocess v0.1.4 // indirect
+	github.com/klauspost/reedsolomon v1.11.8 // indirect
+	github.com/libp2p/go-flow-metrics v0.1.0 // indirect
+	github.com/libp2p/go-libp2p-pubsub v0.11.0 // indirect
+	github.com/libp2p/go-msgio v0.3.0 // indirect
+	github.com/multiformats/go-multiaddr-fmt v0.1.0 // indirect
+	github.com/multiformats/go-multistream v0.5.0 // indirect
+	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/yusufpapurcu/wmi v1.2.3 // indirect
+	go.opentelemetry.io/otel v1.24.0 // indirect
+	go.opentelemetry.io/otel/metric v1.24.0 // indirect
+	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 )
 

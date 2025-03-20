@@ -153,7 +153,7 @@ func (s *Storage) GetStakeDetails() (StakeDetails, error) {
 	return sD, nil
 }
 
-func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, fs WrapperSFs) error {
+func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, fs WrapperSFs, symbioticFpSignCache []string) error {
 	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
@@ -167,24 +167,10 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 		return err
 	}
 
-	//var sF SymbioticFpIds
-	//sFB, err := s.db.Get(getSymbioticFpIdsKey(batchID), nil)
-	//if err != nil {
-	//	if !errors.Is(err, leveldb.ErrNotFound) {
-	//		return err
-	//	}
-	//} else {
-	//	if err = json.Unmarshal(sFB, &sF); err != nil {
-	//		return err
-	//	}
-	//	for _, sR := range sF.SignRequests {
-	//		sD.SymbioticSignNode = append(sD.SymbioticSignNode, sR.SignAddress)
-	//	}
-	//}
-
 	sD.BabylonBlock = fs.BlockNumber
 	sD.StateRoot = fs.SubmitFinalitySignature.StateRoot
 	sD.EthBlock = fs.SubmitFinalitySignature.L1BlockNumber
+	sD.SymbioticSignNode = symbioticFpSignCache
 
 	for fpPubkeyHex, sR := range fpSignCache {
 		for i, quorum := range sD.BitcoinQuorum {

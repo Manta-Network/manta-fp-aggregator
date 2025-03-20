@@ -1,7 +1,6 @@
 package node
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/big"
 
@@ -45,17 +44,13 @@ func (f *EthHeaderTraversal) NextHeaders(maxSize uint64) ([]types.Header, error)
 	} else {
 		f.latestHeader = latestHeader
 	}
-	latestHeaderJson, _ := json.Marshal(latestHeader)
-	log.Info("header traversal db latest header: ", "info", string(latestHeaderJson))
+	log.Info("header traversal db latest header: ", "height", latestHeader.Number)
 
 	endHeight := new(big.Int).Sub(latestHeader.Number, f.blockConfirmationDepth)
 	if endHeight.Sign() < 0 {
 		// No blocks with the provided confirmation depth available
 		return nil, nil
 	}
-
-	lastTraversedHeaderJson, _ := json.Marshal(f.lastTraversedHeader)
-	log.Info("eth header traversal last traversed deader to json: ", "info", string(lastTraversedHeaderJson))
 
 	if f.lastTraversedHeader != nil {
 		cmp := f.lastTraversedHeader.Number.Cmp(endHeight)

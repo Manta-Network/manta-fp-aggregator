@@ -47,14 +47,14 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 	}
 	var fromHeader *types.Header
 	if dbLatestHeader != 0 {
-		logger.Info("sync detected last indexed block", "number", dbLatestHeader)
+		logger.Info("eth: sync detected last indexed block", "number", dbLatestHeader)
 		header, err := client.BlockHeaderByNumber(big.NewInt(int64(dbLatestHeader)))
 		if err != nil {
 			logger.Error("failed to get eth block header", "height", dbLatestHeader)
 		}
 		fromHeader = header
 	} else if cfg.EthStartingHeight > 0 {
-		logger.Info("no sync indexed state starting from supplied ethereum height", "height", cfg.EthStartingHeight)
+		logger.Info("eth: no sync indexed state starting from supplied ethereum height", "height", cfg.EthStartingHeight)
 		header, err := client.BlockHeaderByNumber(big.NewInt(cfg.EthStartingHeight))
 		if err != nil {
 			return nil, fmt.Errorf("could not fetch eth starting block header: %w", err)
@@ -83,7 +83,7 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		log:               logger,
 		contractEventChan: contractEventChan,
 		tasks: tasks.Group{HandleCrit: func(err error) {
-			shutdown(fmt.Errorf("critical error in Synchronizer: %w", err))
+			shutdown(fmt.Errorf("critical error in eth synchronizer: %w", err))
 		}},
 	}, nil
 }
@@ -93,20 +93,20 @@ func (syncer *EthSynchronizer) Start() error {
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
 			if len(syncer.headers) > 0 {
-				syncer.log.Info("retrying previous batch")
+				syncer.log.Info("eth: retrying previous batch")
 			} else {
 				newHeaders, err := syncer.headerTraversal.NextHeaders(syncer.blockStep)
 				if err != nil {
-					syncer.log.Error("error querying for headers", "err", err)
+					syncer.log.Error("eth: error querying for headers", "err", err)
 					continue
 				} else if len(newHeaders) == 0 {
-					syncer.log.Warn("no new headers. syncer at head?")
+					syncer.log.Warn("eth: no new headers. syncer at head?")
 				} else {
 					syncer.headers = newHeaders
 				}
 				latestHeader := syncer.headerTraversal.LatestHeader()
 				if latestHeader != nil {
-					syncer.log.Info("Latest header", "latestHeader Number", latestHeader.Number)
+					syncer.log.Info("eth: Latest header", "latestHeader Number", latestHeader.Number)
 				}
 			}
 			err := syncer.processBatch(syncer.headers)
@@ -124,14 +124,14 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 		return nil
 	}
 	firstHeader, lastHeader := headers[0], headers[len(headers)-1]
-	syncer.log.Info("extracting batch", "size", len(headers), "startBlock", firstHeader.Number.String(), "endBlock", lastHeader.Number.String())
+	syncer.log.Info("eth: extracting batch", "size", len(headers), "startBlock", firstHeader.Number.String(), "endBlock", lastHeader.Number.String())
 
 	headerMap := make(map[common.Hash]*types.Header, len(headers))
 	for i := range headers {
 		header := headers[i]
 		headerMap[header.Hash()] = &header
 	}
-	syncer.log.Info("chainCfg Contracts", "contract address", syncer.contracts)
+	syncer.log.Info("eth: chainCfg Contracts", "contract address", syncer.contracts)
 	filterQuery := ethereum.FilterQuery{FromBlock: firstHeader.Number, ToBlock: lastHeader.Number, Addresses: syncer.contracts}
 	logs, err := syncer.ethClient.FilterLogs(filterQuery)
 	if err != nil {
@@ -140,13 +140,13 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 	}
 
 	if logs.ToBlockHeader.Number.Cmp(lastHeader.Number) != 0 {
-		return fmt.Errorf("mismatch in FilterLog#ToBlock number")
+		return fmt.Errorf("eth: mismatch in FilterLog#ToBlock number")
 	} else if logs.ToBlockHeader.Hash() != lastHeader.Hash() {
-		return fmt.Errorf("mismatch in FitlerLog#ToBlock block hash")
+		return fmt.Errorf("eth: mismatch in FitlerLog#ToBlock block hash")
 	}
 
 	if len(logs.Logs) > 0 {
-		syncer.log.Info("detected logs", "size", len(logs.Logs))
+		syncer.log.Info("eth: detected logs", "size", len(logs.Logs))
 	}
 
 	blockHeaders := make([]store.EthBlockHeader, 0, len(headers))
