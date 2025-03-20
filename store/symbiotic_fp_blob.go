@@ -3,57 +3,73 @@ package store
 import (
 	"encoding/json"
 	"errors"
-	"math/big"
 
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
-type SymbioticFpIds struct {
-	BatchId          uint64        `json:"batch_id"`
-	SignRequests     []SignRequest `json:"sign_requests"`
-	TotalStakeAmount *big.Int      `json:"total_stake_amount"`
+type SymbioticFpBlob struct {
+	SignRequests SignRequest `json:"sign_requests"`
+	Timestamp    uint64      `json:"timestamp"`
 }
 
 type SignRequest struct {
-	StateRoot   [32]byte `json:"state_root"`
-	Signature   []byte   `json:"signature"`
-	SignAddress string   `json:"sign_address"`
+	StateRoot   string `json:"state_root"`
+	Signature   []byte `json:"signature"`
+	SignAddress string `json:"sign_address"`
 }
 
-func (s *Storage) SetSymbioticFpIds(id SymbioticFpIds) error {
-	sFz, err := s.db.Get(getSymbioticFpIdsKey(id.BatchId), nil)
+type BatchSymbioticFpBlob struct {
+	SymbioticFpBlobs []SymbioticFpBlob `json:"symbiotic_fp_blobs"`
+}
+
+func (s *Storage) SetSymbioticFpBlob(blob SymbioticFpBlob) error {
+	sFz, err := s.db.Get(getSymbioticFpBlobKey(blob.Timestamp), nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
-			sF, err := json.Marshal(id)
+			sF, err := json.Marshal(blob)
 			if err != nil {
 				return err
 			}
-			return s.db.Put(getSymbioticFpIdsKey(id.BatchId), sF, nil)
+			return s.db.Put(getSymbioticFpBlobKey(blob.Timestamp), sF, nil)
 		}
 	}
-	var sF SymbioticFpIds
-	if err = json.Unmarshal(sFz, &sF); err != nil {
+	var bSF BatchSymbioticFpBlob
+	if err = json.Unmarshal(sFz, &bSF); err != nil {
 		return err
 	}
-
-	sF.TotalStakeAmount = new(big.Int).Add(sF.TotalStakeAmount, id.TotalStakeAmount)
-	sF.SignRequests = append(sF.SignRequests, id.SignRequests[0])
-
-	sFz, err = json.Marshal(sF)
+	bSF.SymbioticFpBlobs = append(bSF.SymbioticFpBlobs, blob)
+	sFz, err = json.Marshal(bSF)
 	if err != nil {
 		return err
 	}
-	return s.db.Put(getSymbioticFpIdsKey(id.BatchId), sFz, nil)
+
+	return s.db.Put(getSymbioticFpBlobKey(blob.Timestamp), sFz, nil)
 }
 
-func (s *Storage) GetSymbioticFpIds(batchId uint64) (SymbioticFpIds, error) {
-	sFz, err := s.db.Get(getSymbioticFpIdsKey(batchId), nil)
-	if err != nil {
-		return handleError(SymbioticFpIds{}, err)
+func (s *Storage) GetSymbioticFpBlobsByTimestamp(start uint64, end uint64) ([]SymbioticFpBlob, error) {
+	var batchSymbioticFpBlobs []BatchSymbioticFpBlob
+	var results []SymbioticFpBlob
+	iter := s.db.NewIterator(&util.Range{Start: getSymbioticFpBlobKey(start), Limit: getSymbioticFpBlobKey(end)}, nil)
+	defer iter.Release()
+
+	for iter.Next() {
+		var bsfb BatchSymbioticFpBlob
+		if err := json.Unmarshal(iter.Value(), &bsfb); err != nil {
+			return nil, err
+		}
+		batchSymbioticFpBlobs = append(batchSymbioticFpBlobs, bsfb)
 	}
-	var sF SymbioticFpIds
-	if err = json.Unmarshal(sFz, &sF); err != nil {
-		return SymbioticFpIds{}, err
+
+	if err := iter.Error(); err != nil {
+		return nil, err
 	}
-	return sF, nil
+
+	for _, batchSymbioticFpBlob := range batchSymbioticFpBlobs {
+		for _, blob := range batchSymbioticFpBlob.SymbioticFpBlobs {
+			results = append(results, blob)
+		}
+	}
+
+	return results, nil
 }

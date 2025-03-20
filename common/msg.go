@@ -8,3 +8,8 @@ var (
 	MsgSelectiveSlashingEvidence   = "/babylon.btcstaking.v1.MsgSelectiveSlashingEvidence"
 	MsgSubmitFinalitySignatureType = "/MsgSubmitFinalitySignature"
 )
+
+const (
+	BabylonSignType = iota
+	SymbioticSignType
+)

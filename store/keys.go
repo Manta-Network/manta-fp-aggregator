@@ -23,9 +23,11 @@ var (
 	SubmitFinalitySignatureKeyMsgPrefix = []byte{0x16}
 	StakeDetailsKeyPrefix               = []byte{0x17}
 	BatchStakeDetailsKeyPrefix          = []byte{0x18}
-	SymbioticFpIdsKeyPrefix             = []byte{0x19}
+	SymbioticFpBlobKeyPrefix            = []byte{0x19}
 	OutputProposedKeyPrefix             = []byte{0x20}
 	SubmitFinalitySignatureKeyPrefix    = []byte{0x21}
+	CelestiaScannedHeightKeyPrefix      = []byte{0x22}
+	CelestiaBlockHeaderKeyPrefix        = []byte{0x23}
 )
 
 func getBabylonBlockHeaderKey(number int64) []byte {
@@ -114,14 +116,24 @@ func getBatchStakeDetailsKey(batchId uint64) []byte {
 	return append(BatchStakeDetailsKeyPrefix, numberBz...)
 }
 
-func getSymbioticFpIdsKey(batchId uint64) []byte {
-	numberBz := make([]byte, 8)
-	binary.BigEndian.PutUint64(numberBz, batchId)
-	return append(SymbioticFpIdsKeyPrefix, numberBz...)
+func getSymbioticFpBlobKey(timestamp uint64) []byte {
+	timestampBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampBz, timestamp)
+	return append(SymbioticFpBlobKeyPrefix, timestampBz...)
 }
 
 func getOutputProposedKey(timestamp uint64) []byte {
 	timestampBz := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestampBz, timestamp)
 	return append(OutputProposedKeyPrefix, timestampBz...)
+}
+
+func getCelestiaScannedHeightKey() []byte {
+	return CelestiaScannedHeightKeyPrefix
+}
+
+func getCelestiaBlockHeaderKey(number uint64) []byte {
+	numberBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(numberBz, number)
+	return append(CelestiaBlockHeaderKeyPrefix, numberBz...)
 }

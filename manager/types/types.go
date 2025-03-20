@@ -11,6 +11,8 @@ type SignMsgRequest struct {
 	BlockNumber *big.Int `json:"block_number"`
 	TxHash      []byte   `json:"tx_hash"`
 	TxType      string   `json:"tx_type"`
+	SignType    int      `json:"sign_type"`
+	StateRoot   string   `json:"state_root"`
 }
 
 type StakerDelegationRequest struct {
