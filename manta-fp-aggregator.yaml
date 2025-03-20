@@ -10,7 +10,6 @@ manager:
   celestia_config:
     namespace: ""
     da_rpc: ""
-    auth_token: ""
     timeout: ""
 
 node:

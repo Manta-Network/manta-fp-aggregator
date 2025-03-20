@@ -41,7 +41,7 @@ type BabylonSynchronizer struct {
 	HeaderTraversal      *node.BabylonHeaderTraversal
 	opFinalityGadgetAddr string
 	blockStep            uint64
-	startHeight          *big.Int
+	StartTimestamp       uint64
 	confirmationDepth    *big.Int
 	resourceCtx          context.Context
 	resourceCancel       context.CancelFunc
@@ -89,6 +89,7 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		blockStep:            cfg.BabylonBlockStep,
 		HeaderTraversal:      headerTraversal,
 		LatestHeader:         fromHeader,
+		StartTimestamp:       uint64(fromHeader.Time.Unix()),
 		db:                   db,
 		resourceCtx:          resCtx,
 		resourceCancel:       resCancel,
@@ -219,6 +220,9 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 					}
 				}
 			}
+		}
+		if err = syncer.db.SetStakeDetailsByTimestamp(uint64(block.Block.Time.Unix())); err != nil {
+			return err
 		}
 	}
 
