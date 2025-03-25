@@ -11,7 +11,7 @@ FROM debian:bookworm-slim
 WORKDIR /app/manta-fp-aggregator
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates net-tools \
+    && apt-get install -y --no-install-recommends ca-certificates net-tools curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
