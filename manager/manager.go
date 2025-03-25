@@ -310,7 +310,7 @@ func (m *Manager) getWindowPeriodStartTime() error {
 		return err
 	}
 
-	submissionInterval, err := m.l2oo.SubmissionInterval(cOpts)
+	submissionInterval, err := m.l2oo.SUBMISSIONINTERVAL(cOpts)
 	if err != nil {
 		m.log.Error("failed to get output submission interval", "err", err)
 		return err
