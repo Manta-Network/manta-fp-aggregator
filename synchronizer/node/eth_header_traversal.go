@@ -74,11 +74,13 @@ func (f *EthHeaderTraversal) NextHeaders(maxSize uint64) ([]types.Header, error)
 	if len(headers) == 0 {
 		return nil, nil
 	}
-	err = f.checkHeaderListByHash(f.lastTraversedHeader, headers)
-	if err != nil {
-		log.Error("next headers check blockList by hash", "error", err)
-		return nil, err
-	}
+
+	// todo There is a problem with the HeaderByHash method
+	//err = f.checkHeaderListByHash(f.lastTraversedHeader, headers)
+	//if err != nil {
+	//	log.Error("next headers check blockList by hash", "error", err)
+	//	return nil, err
+	//}
 
 	numHeaders := len(headers)
 	if numHeaders == 0 {

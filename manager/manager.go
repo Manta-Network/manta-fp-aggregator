@@ -26,7 +26,7 @@ import (
 
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/bls"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
-	"github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
+	sfp "github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
 	common2 "github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
