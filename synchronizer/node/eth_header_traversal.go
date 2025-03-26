@@ -85,7 +85,7 @@ func (f *EthHeaderTraversal) NextHeaders(maxSize uint64) ([]types.Header, error)
 	numHeaders := len(headers)
 	if numHeaders == 0 {
 		return nil, nil
-	} else if f.lastTraversedHeader != nil && headers[0].ParentHash != f.lastTraversedHeader.Hash() {
+	} else if f.lastTraversedHeader != nil && headers[0].Number.Uint64()-1 != f.lastTraversedHeader.Number.Uint64() {
 		log.Error("Err header traversal and provider mismatched state", "parentHash = ", headers[0].ParentHash.String(), "hash", f.lastTraversedHeader.Hash().String())
 		return nil, ErrHeaderTraversalAndProviderMismatchedState
 	}
