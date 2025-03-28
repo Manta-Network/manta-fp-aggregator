@@ -10,7 +10,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
 
 	"github.com/Manta-Network/manta-fp-aggregator/common/cliapp"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
@@ -62,7 +61,7 @@ func newCli(GitCommit string, GitDate string) *cli.App {
 	managerFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, CelestiaAuthTokenFlag}
 	peerIDFlags := []cli.Flag{PrivateKeyFlag}
 	return &cli.App{
-		Version:              params.VersionWithCommit(GitCommit, GitDate),
+		Version:              VersionWithCommit(GitCommit, GitDate),
 		Description:          "A decentralized Relayer that synchronizes contract events from Babylon",
 		EnableBashCompletion: true,
 		Commands: []*cli.Command{

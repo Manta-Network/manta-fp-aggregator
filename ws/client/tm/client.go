@@ -83,7 +83,7 @@ type WSClient struct { // nolint: maligned
 
 	// Time between sending a ping and receiving a pong. See
 	// https://godoc.org/github.com/rcrowley/go-metrics#Timer.
-	PingPongLatencyTimer metrics.Timer
+	PingPongLatencyTimer *metrics.Timer
 }
 
 // NewWS returns a new client. See the commentary on the func(*WSClient)

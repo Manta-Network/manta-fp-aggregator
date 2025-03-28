@@ -74,19 +74,11 @@ func (f *EthHeaderTraversal) NextHeaders(maxSize uint64) ([]types.Header, error)
 	if len(headers) == 0 {
 		return nil, nil
 	}
-
-	// todo There is a problem with the HeaderByHash method
-	//err = f.checkHeaderListByHash(f.lastTraversedHeader, headers)
-	//if err != nil {
-	//	log.Error("next headers check blockList by hash", "error", err)
-	//	return nil, err
-	//}
-
 	numHeaders := len(headers)
 	if numHeaders == 0 {
 		return nil, nil
-	} else if f.lastTraversedHeader != nil && headers[0].Number.Uint64()-1 != f.lastTraversedHeader.Number.Uint64() {
-		log.Error("Err header traversal and provider mismatched state", "parentHash = ", headers[0].ParentHash.String(), "hash", f.lastTraversedHeader.Hash().String())
+	} else if f.lastTraversedHeader != nil && headers[0].Number.Uint64() != new(big.Int).Add(f.lastTraversedHeader.Number, big.NewInt(1)).Uint64() {
+		log.Error("Err header traversal and provider mismatched state", "number = ", headers[0].Number.Uint64(), "parentNumber = ", f.lastTraversedHeader.Number.Uint64())
 		return nil, ErrHeaderTraversalAndProviderMismatchedState
 	}
 	f.lastTraversedHeader = &headers[numHeaders-1]
