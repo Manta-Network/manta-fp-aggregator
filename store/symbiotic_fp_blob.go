@@ -24,17 +24,18 @@ type BatchSymbioticFpBlob struct {
 }
 
 func (s *Storage) SetSymbioticFpBlob(blob SymbioticFpBlob) error {
+	var bSF BatchSymbioticFpBlob
 	sFz, err := s.db.Get(getSymbioticFpBlobKey(blob.Timestamp), nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
-			sF, err := json.Marshal(blob)
+			bSF.SymbioticFpBlobs = append(bSF.SymbioticFpBlobs, blob)
+			sF, err := json.Marshal(bSF)
 			if err != nil {
 				return err
 			}
 			return s.db.Put(getSymbioticFpBlobKey(blob.Timestamp), sF, nil)
 		}
 	}
-	var bSF BatchSymbioticFpBlob
 	if err = json.Unmarshal(sFz, &bSF); err != nil {
 		return err
 	}

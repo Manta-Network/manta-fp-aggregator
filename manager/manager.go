@@ -173,35 +173,36 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	}
 
 	return &Manager{
-		done:                 make(chan struct{}),
-		log:                  logger,
-		db:                   db,
-		wsServer:             wsServer,
-		httpAddr:             cfg.Manager.HttpAddr,
-		sStakeUrl:            cfg.Manager.SymbioticStakeUrl,
-		NodeMembers:          nodeMemberS,
-		ctx:                  ctx,
-		privateKey:           priv,
-		from:                 crypto.PubkeyToAddress(priv.PublicKey),
-		signTimeout:          cfg.Manager.SignTimeout,
-		fPTimeout:            cfg.Manager.FPTimeout,
-		babylonSynchronizer:  babylonSynchronizer,
-		ethSynchronizer:      ethSynchronizer,
-		ethEventProcess:      ethEventProcess,
-		celestiaSynchronizer: celestiaSynchronizer,
-		txMsgChan:            txMsgChan,
-		contractEventChan:    contractEventChan,
-		ethChainID:           cfg.EthChainID,
-		ethClient:            ethCli,
-		frmContract:          frmContract,
-		frmContractAddr:      common.HexToAddress(cfg.Contracts.FrmContractAddress),
-		rawFrmContract:       rawfrmContract,
-		barContract:          barContract,
-		barContractAddr:      common.HexToAddress(cfg.Contracts.BarContactAddress),
-		rawBarContract:       rawBarContract,
-		msmContract:          msmContract,
-		batchId:              batchId.Uint64(),
-		l2oo:                 l2ooContract,
+		done:                     make(chan struct{}),
+		log:                      logger,
+		db:                       db,
+		wsServer:                 wsServer,
+		httpAddr:                 cfg.Manager.HttpAddr,
+		sStakeUrl:                cfg.Manager.SymbioticStakeUrl,
+		NodeMembers:              nodeMemberS,
+		ctx:                      ctx,
+		privateKey:               priv,
+		from:                     crypto.PubkeyToAddress(priv.PublicKey),
+		signTimeout:              cfg.Manager.SignTimeout,
+		fPTimeout:                cfg.Manager.FPTimeout,
+		babylonSynchronizer:      babylonSynchronizer,
+		ethSynchronizer:          ethSynchronizer,
+		ethEventProcess:          ethEventProcess,
+		celestiaSynchronizer:     celestiaSynchronizer,
+		txMsgChan:                txMsgChan,
+		contractEventChan:        contractEventChan,
+		ethChainID:               cfg.EthChainID,
+		ethClient:                ethCli,
+		frmContract:              frmContract,
+		frmContractAddr:          common.HexToAddress(cfg.Contracts.FrmContractAddress),
+		rawFrmContract:           rawfrmContract,
+		barContract:              barContract,
+		barContractAddr:          common.HexToAddress(cfg.Contracts.BarContactAddress),
+		rawBarContract:           rawBarContract,
+		msmContract:              msmContract,
+		batchId:                  batchId.Uint64(),
+		l2oo:                     l2ooContract,
+		outputSubmissionInterval: uint64(cfg.Manager.OutputSubmitInterval),
 	}, nil
 }
 
@@ -287,37 +288,39 @@ func (m *Manager) Stopped() bool {
 }
 
 func (m *Manager) getWindowPeriodStartTime() error {
-	latestHeight, err := m.ethClient.BlockNumber(m.ctx)
+	sR, err := m.db.GetLatestProcessedStateRoot()
 	if err != nil {
-		m.log.Error("failed to get eth latest block height", "err", err)
+		m.log.Error("failed to get latest processed state root", "err", err)
 		return err
 	}
 
-	cOpts := &bind.CallOpts{
-		BlockNumber: big.NewInt(int64(latestHeight)),
-		From:        m.from,
-	}
+	if sR != nil {
+		m.windowPeriodStartTime = sR.Timestamp.Uint64()
+	} else {
+		latestHeight, err := m.ethClient.BlockNumber(m.ctx)
+		if err != nil {
+			m.log.Error("failed to get eth latest block height", "err", err)
+			return err
+		}
 
-	index, err := m.l2oo.LatestOutputIndex(cOpts)
-	if err != nil {
-		m.log.Error("failed to get latest output index", "height", latestHeight, "err", err)
-		return err
-	}
+		cOpts := &bind.CallOpts{
+			BlockNumber: big.NewInt(int64(latestHeight)),
+			From:        m.from,
+		}
 
-	output, err := m.l2oo.GetL2Output(cOpts, index)
-	if err != nil {
-		m.log.Error("failed to get l2 output", "height", latestHeight, "err", err)
-		return err
-	}
+		index, err := m.l2oo.LatestOutputIndex(cOpts)
+		if err != nil {
+			m.log.Error("failed to get latest output index", "height", latestHeight, "err", err)
+			return err
+		}
 
-	submissionInterval, err := m.l2oo.SUBMISSIONINTERVAL(cOpts)
-	if err != nil {
-		m.log.Error("failed to get output submission interval", "err", err)
-		return err
+		output, err := m.l2oo.GetL2Output(cOpts, index)
+		if err != nil {
+			m.log.Error("failed to get l2 output", "height", latestHeight, "err", err)
+			return err
+		}
+		m.windowPeriodStartTime = output.Timestamp.Uint64()
 	}
-
-	m.outputSubmissionInterval = submissionInterval.Uint64()
-	m.windowPeriodStartTime = output.Timestamp.Uint64()
 
 	return nil
 }
@@ -341,7 +344,7 @@ func (m *Manager) work() {
 			}
 
 			if op == nil {
-				m.log.Warn("no more state root need to processed", "start", m.windowPeriodStartTime, "end", m.windowPeriodStartTime+m.outputSubmissionInterval+100)
+				m.log.Warn("no more state root need to processed", "start", m.windowPeriodStartTime, "end", m.windowPeriodStartTime+m.outputSubmissionInterval+60)
 				continue
 			}
 
@@ -363,7 +366,7 @@ func (m *Manager) work() {
 
 			m.log.Info("start counting fp signatures", "start", m.windowPeriodStartTime, "end", op.Timestamp.Uint64())
 
-			finalitySignature, babylonFpSignCache, symbioticFpSignCache, symbioticFpTotalStakeAmount, voteSR, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
+			finalitySignature, voteStateRoot, babylonFpSignCache, symbioticFpSignCache, symbioticFpTotalStakeAmount, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
 			if err != nil {
 				m.log.Error("failed to get max sign state root", "err", err)
 				continue
@@ -379,9 +382,11 @@ func (m *Manager) work() {
 				request.BlockNumber = big.NewInt(int64(finalitySignature.BlockNumber))
 				request.TxType = common2.MsgSubmitFinalitySignatureType
 				request.TxHash = finalitySignature.TransactionHash
+				voteStateRoot.BabylonHeight = finalitySignature.BlockNumber
 			} else if len(symbioticFpSignCache) != 0 {
 				request.SignType = common2.SymbioticSignType
-				request.StateRoot = voteSR
+				request.StateRoot = (*voteStateRoot).StateRoot
+				voteStateRoot.BabylonHeight = uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Height)
 			} else {
 				m.log.Warn("no fp signature, skip this state root", "state_root", op.StateRoot)
 				m.windowPeriodStartTime = op.Timestamp.Uint64()
@@ -396,7 +401,7 @@ func (m *Manager) work() {
 				m.log.Error("failed to sign msg", "err", err)
 				continue
 			}
-			m.log.Info("success to sign msg", "txHash", hexutil.Encode(request.TxHash), "signature", res.Signature, "block_number", request.BlockNumber.Int64())
+			m.log.Info("success to sign msg", "signature", res.Signature)
 
 			signature = res.Signature
 			g2Point = res.G2Point
@@ -406,17 +411,7 @@ func (m *Manager) work() {
 					Y: v.Y.BigInt(new(big.Int)),
 				})
 			}
-			if err = m.db.SetSignature(store.Signature{
-				BlockNumber:     request.BlockNumber.Int64(),
-				TransactionHash: request.TxHash,
-				Data:            signature.Serialize(),
-				Timestamp:       time.Now().Unix(),
-			}); err != nil {
-				m.log.Error("failed to store signature", "err", err)
-				return
-			}
-
-			err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, *finalitySignature, symbioticFpSignCache, m.windowPeriodStartTime, op.Timestamp.Uint64())
+			err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, voteStateRoot, symbioticFpSignCache, m.windowPeriodStartTime, op.Timestamp.Uint64())
 			if err != nil {
 				m.log.Error("failed to store batch stake details", "err", err)
 				continue
@@ -428,11 +423,11 @@ func (m *Manager) work() {
 				continue
 			}
 			finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
-				StateRoot:     common.HexToHash(finalitySignature.SubmitFinalitySignature.StateRoot),
-				L2BlockNumber: big.NewInt(int64(finalitySignature.SubmitFinalitySignature.L2BlockNumber)),
-				L1BlockHash:   common.HexToHash(finalitySignature.SubmitFinalitySignature.L1BlockHash),
-				L1BlockNumber: big.NewInt(int64(finalitySignature.SubmitFinalitySignature.L1BlockNumber)),
-				MsgHash:       crypto.Keccak256Hash(common.Hex2Bytes(voteSR)),
+				StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
+				L2BlockNumber: big.NewInt(int64(voteStateRoot.L2BlockNumber)),
+				L1BlockHash:   common.HexToHash(voteStateRoot.L1BlockHash),
+				L1BlockNumber: big.NewInt(int64(voteStateRoot.L1BlockNumber)),
+				MsgHash:       crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)),
 			}
 
 			totalBtcStake, err := m.db.GetBatchTotalBabylonStakeAmount(m.batchId)
@@ -484,6 +479,11 @@ func (m *Manager) work() {
 				continue
 			}
 
+			if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
+				m.log.Error("failed to set latest processed state root", "err", err)
+				continue
+			}
+
 			m.batchId++
 			m.windowPeriodStartTime = op.Timestamp.Uint64()
 		case <-m.done:
@@ -493,7 +493,7 @@ func (m *Manager) work() {
 }
 
 func (m *Manager) SignMsgBatch(request types.SignMsgRequest) (*types.SignResult, error) {
-	m.log.Info("received sign request", "tx_type", request.TxType, "block_number", request.BlockNumber.Uint64(), "tx_hash", hexutil.Encode(request.TxHash))
+	m.log.Info("received sign request", "sign_type", request.SignType)
 
 	activeMember, err := m.db.GetActiveMember()
 	if err != nil {
@@ -558,6 +558,7 @@ func (m *Manager) storeDelegateMsgData(txMsg store.TxMessage) error {
 			m.log.Error("failed to store babylon delegation key", "err", err)
 			return err
 		}
+		m.log.Info("success to store babylon delegation msg", "tx", hexutil.Encode(txMsg.TransactionHash))
 		return nil
 	case common2.MsgBTCUndelegate:
 		var mBU types2.MsgBTCUndelegate
@@ -568,6 +569,7 @@ func (m *Manager) storeDelegateMsgData(txMsg store.TxMessage) error {
 		}); err != nil {
 			return err
 		}
+		m.log.Info("success to store babylon undelegation msg", "tx", hexutil.Encode(txMsg.TransactionHash))
 		return nil
 	case common2.MsgCreateFinalityProvider:
 		return nil
@@ -596,7 +598,7 @@ func ExistsIgnoreCase(slice []string, target string) bool {
 	return false
 }
 
-func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, map[string]string, []string, *big.Int, string, error) {
+func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, *types.VoteStateRoot, map[string]string, []string, *big.Int, error) {
 	stateRootCountCache := make(map[string]int64)
 	stateRootMsgCache := make(map[string]*store.WrapperSFs)
 	babylonFpSignCache := make(map[string]string)
@@ -604,19 +606,19 @@ func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, map
 	var symbioticFpSignList []string
 	var totalSymbioticFpStaked = big.NewInt(0)
 
+	op, err := m.db.GetLatestUnprocessedStateRoot(start-1, end)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
 	babylonFinalitySignatures, err := m.db.GetBabylonFinalitySignatureByTimestamp(start, end)
 	if err != nil {
-		return nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, err
 	}
-
-	symbioticFinalitySignatures, err := m.db.GetSymbioticFpBlobsByTimestamp(start, end)
+	// celestia block timestamp is less than ethereum block
+	symbioticFinalitySignatures, err := m.db.GetSymbioticFpBlobsByTimestamp(start-30, end)
 	if err != nil {
-		return nil, nil, nil, nil, "", err
-	}
-
-	op, err := m.db.GetOutputProposedByTimestamp(start)
-	if err != nil {
-		return nil, nil, nil, nil, "", err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	for _, bfs := range babylonFinalitySignatures {
@@ -677,14 +679,21 @@ func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, map
 				m.log.Error("failed to get operator stake amount", "address", address, "err", err)
 				continue
 			}
-			if amount.Cmp(big.NewInt(0)) <= 0 {
+			if amount.Cmp(big.NewInt(0)) > 0 {
 				symbioticFpSignList = append(symbioticFpSignList, address)
 				totalSymbioticFpStaked = new(big.Int).Add(totalSymbioticFpStaked, amount)
 			}
 		}
 	}
 
-	return submitFinalitySignature, babylonFpSignCache, symbioticFpSignList, totalSymbioticFpStaked, maxSignStateRoot, nil
+	var voteStateRoot = types.VoteStateRoot{
+		L1BlockNumber: op.L1BlockNumber,
+		L1BlockHash:   op.L1BlockHash.String(),
+		L2BlockNumber: op.L2BlockNumber.Uint64(),
+		StateRoot:     maxSignStateRoot,
+	}
+
+	return submitFinalitySignature, &voteStateRoot, babylonFpSignCache, symbioticFpSignList, totalSymbioticFpStaked, nil
 }
 
 func (m *Manager) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {

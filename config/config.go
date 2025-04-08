@@ -40,6 +40,7 @@ type ManagerConfig struct {
 	NodeMembers           string         `yaml:"node_members"`
 	MaxBabylonOperatorNum uint64         `yaml:"max_babylon_operator_num"`
 	CelestiaConfig        CelestiaConfig `yaml:"celestia_config"`
+	OutputSubmitInterval  time.Duration  `yaml:"output_submit_interval"`
 }
 
 type ContractsConfig struct {

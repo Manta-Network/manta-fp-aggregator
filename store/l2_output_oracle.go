@@ -2,7 +2,9 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/syndtr/goleveldb/leveldb"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -58,4 +60,29 @@ func (s *Storage) GetLatestUnprocessedStateRoot(timestamp, limit uint64) (*Outpu
 
 	return nil, nil
 
+}
+
+func (s *Storage) SetLatestProcessedStateRoot(op OutputProposed) error {
+	bz, err := json.Marshal(op)
+	if err != nil {
+		return err
+	}
+	return s.db.Put(getFinalityOutputProposedKey(), bz, nil)
+}
+
+func (s *Storage) GetLatestProcessedStateRoot() (*OutputProposed, error) {
+	opb, err := s.db.Get(getFinalityOutputProposedKey(), nil)
+	if err != nil {
+		if errors.Is(err, leveldb.ErrNotFound) {
+			return nil, nil
+		} else {
+			return nil, err
+		}
+	}
+
+	var op OutputProposed
+	if err = json.Unmarshal(opb, &op); err != nil {
+		return nil, err
+	}
+	return &op, nil
 }
