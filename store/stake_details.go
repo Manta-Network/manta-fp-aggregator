@@ -37,6 +37,14 @@ type StakeDetails struct {
 	SymbioticSignNode []string     `json:"symbioticSignNode"`
 }
 
+func (s *Storage) SetStakeDetailsTest(sD StakeDetails) error {
+	bsD, err := json.Marshal(sD)
+	if err != nil {
+		return err
+	}
+	return s.db.Put(getStakeDetailsKey(), bsD, nil)
+}
+
 func (s *Storage) SetStakeDetails(msg CreateBTCDelegation, stakeType int8) error {
 	if stakeType == DelegateType {
 		stakeDB, err := s.db.Get(getStakeDetailsKey(), nil)
