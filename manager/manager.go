@@ -37,7 +37,6 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer"
 	"github.com/Manta-Network/manta-fp-aggregator/ws/server"
 
-	types4 "github.com/babylonlabs-io/babylon/x/btccheckpoint/types"
 	types2 "github.com/babylonlabs-io/babylon/x/btcstaking/types"
 	"github.com/ethereum-optimism/optimism/op-proposer/bindings"
 	"github.com/gin-gonic/gin"
@@ -540,7 +539,6 @@ func (m *Manager) storeDelegateMsgData(txMsg store.TxMessage) error {
 	switch txMsg.Type {
 	case common2.MsgCreateBTCDelegation:
 		var mCBD types2.MsgCreateBTCDelegation
-		var txInfo types4.TransactionInfo
 		mCBD.Unmarshal(txMsg.Data)
 		if err := m.db.SetCreateBTCDelegationMsg(store.CreateBTCDelegation{
 			CBD:    mCBD,
@@ -548,8 +546,7 @@ func (m *Manager) storeDelegateMsgData(txMsg store.TxMessage) error {
 		}); err != nil {
 			return err
 		}
-		txInfo.Unmarshal(mCBD.StakingTx)
-		btcTx, err := types2.NewBtcTransaction(txInfo.Transaction)
+		btcTx, err := types2.NewBtcTransaction(mCBD.StakingTx)
 		if err != nil {
 			m.log.Error("failed to new btc transaction", "err", err)
 			return err

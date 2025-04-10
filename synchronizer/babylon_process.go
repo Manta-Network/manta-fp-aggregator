@@ -6,7 +6,6 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 
-	types3 "github.com/babylonlabs-io/babylon/x/btccheckpoint/types"
 	types2 "github.com/babylonlabs-io/babylon/x/btcstaking/types"
 	"github.com/babylonlabs-io/babylon/x/finality/types"
 )
@@ -37,12 +36,10 @@ func (syncer *BabylonSynchronizer) ProcessNewFinalityProvider(txMessage store.Tx
 
 func (syncer *BabylonSynchronizer) ProcessCreateBTCDelegation(txMessage store.TxMessage) error {
 	var mCBD types2.MsgCreateBTCDelegation
-	var txInfo types3.TransactionInfo
 
 	if txMessage.Type == common.MsgCreateBTCDelegation {
 		mCBD.Unmarshal(txMessage.Data)
-		txInfo.Unmarshal(mCBD.StakingTx)
-		btcTx, err := types2.NewBtcTransaction(txInfo.Transaction)
+		btcTx, err := types2.NewBtcTransaction(mCBD.StakingTx)
 		if err != nil {
 			syncer.log.Error("failed to new btc transaction", "err", err)
 			return err
