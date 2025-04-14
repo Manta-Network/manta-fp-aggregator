@@ -371,6 +371,7 @@ func (m *Manager) work() {
 			m.log.Info("start counting fp signatures", "start", m.windowPeriodStartTime, "end", op.Timestamp.Uint64())
 
 			finalitySignature, voteStateRoot, babylonFpSignCache, symbioticFpSignCache, symbioticFpTotalStakeAmount, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
+			m.log.Info("success to count fp signatures", "result", voteStateRoot)
 			if err != nil {
 				m.log.Error("failed to get max sign state root", "err", err)
 				continue
@@ -431,6 +432,7 @@ func (m *Manager) work() {
 				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
+			m.log.Info("msg hash", "data", crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)))
 			finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
 				StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
 				L2BlockNumber: big.NewInt(int64(voteStateRoot.L2BlockNumber)),
