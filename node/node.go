@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"crypto/ecdsa"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -386,31 +385,8 @@ func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.Node
 
 func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
 	var bSign *sign.Signature
-	if requestBody.SignType == common3.BabylonSignType {
-		if requestBody.TxType == common3.MsgSubmitFinalitySignatureType {
-			exist, sFS := n.db.GetSubmitFinalitySignatureMsg(requestBody.TxHash)
-			if exist {
-				var sigParams store.WrapperSFs
-				if err := json.Unmarshal(sFS.SFSByte, &sigParams); err != nil {
-					n.log.Error("failed to unmarshal submitFinalitySignature JSON:", "err", err)
-					return nil, err
-				}
-				decodedStateRootBytes, err := base64.StdEncoding.DecodeString(sigParams.SubmitFinalitySignature.StateRoot)
-				if err != nil {
-					n.log.Error("failed to decode stateRoot:", "err", err)
-					return nil, err
-				}
-				byteData := crypto.Keccak256Hash(decodedStateRootBytes)
-				bSign = n.keyPairs.SignMessage(byteData)
-				n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
-			} else {
-				return nil, nil
-			}
-		}
-	} else if requestBody.SignType == common3.SymbioticSignType {
-		bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
-		n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
-	}
+	bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
+	n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 
 	return bSign, nil
 }

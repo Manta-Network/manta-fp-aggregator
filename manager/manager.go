@@ -386,6 +386,7 @@ func (m *Manager) work() {
 				request.BlockNumber = big.NewInt(int64(finalitySignature.BlockNumber))
 				request.TxType = common2.MsgSubmitFinalitySignatureType
 				request.TxHash = finalitySignature.TransactionHash
+				request.StateRoot = (*voteStateRoot).StateRoot
 				voteStateRoot.BabylonHeight = finalitySignature.BlockNumber
 			} else if len(symbioticFpSignCache) != 0 {
 				request.SignType = common2.SymbioticSignType
