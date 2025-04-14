@@ -48,6 +48,38 @@ func (s *Storage) SetOperatorRegisteredEvent(event OperatorRegistered) error {
 	return s.db.Put(getActiveMemberKey(), nM, nil)
 }
 
+func (s *Storage) SetActiveMember(member string) error {
+	var nodeMembers NodeMembers
+	nMB, err := s.db.Get(getActiveMemberKey(), nil)
+	if err != nil {
+		if errors.Is(err, leveldb.ErrNotFound) {
+			nodeMembers.Members = append(nodeMembers.Members, member)
+			bn, err := json.Marshal(nodeMembers)
+			if err != nil {
+				return err
+			}
+			return s.db.Put(getActiveMemberKey(), bn, nil)
+		} else {
+			return err
+		}
+	}
+	if err = json.Unmarshal(nMB, &nodeMembers); err != nil {
+		return err
+	}
+
+	if contains(nodeMembers.Members, member) {
+		return nil
+	} else {
+		nodeMembers.Members = append(nodeMembers.Members, member)
+	}
+
+	nM, err := json.Marshal(nodeMembers)
+	if err != nil {
+		return err
+	}
+	return s.db.Put(getActiveMemberKey(), nM, nil)
+}
+
 func (s *Storage) GetActiveMember() (NodeMembers, error) {
 	aMB, err := s.db.Get(getActiveMemberKey(), nil)
 	if err != nil {
@@ -59,4 +91,13 @@ func (s *Storage) GetActiveMember() (NodeMembers, error) {
 		return NodeMembers{}, err
 	}
 	return nM, nil
+}
+
+func contains(slice []string, str string) bool {
+	for _, s := range slice {
+		if s == str {
+			return true
+		}
+	}
+	return false
 }

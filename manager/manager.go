@@ -150,6 +150,11 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	}
 
 	nodeMemberS := strings.Split(cfg.Manager.NodeMembers, ",")
+	for _, nodeMember := range nodeMemberS {
+		if err := db.SetActiveMember(nodeMember); err != nil {
+			return nil, fmt.Errorf("failed to set node member, err: %v", err)
+		}
+	}
 
 	txMsgChan := make(chan store.TxMessage, cfg.Manager.MaxBabylonOperatorNum)
 	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan)
