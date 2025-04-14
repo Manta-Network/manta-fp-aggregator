@@ -400,9 +400,11 @@ func (m *Manager) work() {
 			res, err := m.SignMsgBatch(request)
 			if errors.Is(err, errNotEnoughSignNode) || errors.Is(err, errNotEnoughVoteNode) {
 				m.log.Error("not enough available nodes to sign or not enough available nodes to vote")
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			} else if err != nil {
 				m.log.Error("failed to sign msg", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 			m.log.Info("success to sign msg", "signature", res.Signature)
@@ -418,12 +420,14 @@ func (m *Manager) work() {
 			err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, voteStateRoot, symbioticFpSignCache, m.windowPeriodStartTime, op.Timestamp.Uint64())
 			if err != nil {
 				m.log.Error("failed to store batch stake details", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 
 			opts, err := client.NewTransactOpts(m.ctx, m.ethChainID, m.privateKey)
 			if err != nil {
 				m.log.Error("failed to new transact opts", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 			finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
@@ -437,6 +441,7 @@ func (m *Manager) work() {
 			totalBtcStake, err := m.db.GetBatchTotalBabylonStakeAmount(m.batchId)
 			if err != nil {
 				m.log.Error("failed to get total btc stake", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 
@@ -457,22 +462,26 @@ func (m *Manager) work() {
 			tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(1))
 			if err != nil {
 				m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 			rTx, err := m.rawFrmContract.RawTransact(opts, tx.Data())
 			if err != nil {
 				m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 			err = m.ethClient.SendTransaction(m.ctx, tx)
 			if err != nil {
 				m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 
 			receipt, err := client.GetTransactionReceipt(m.ctx, m.ethClient, rTx.Hash())
 			if err != nil {
 				m.log.Error("failed to get verify finality transaction receipt", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 
@@ -480,11 +489,13 @@ func (m *Manager) work() {
 
 			if err = m.db.DeleteStakeDetailsByTimestamp(m.babylonSynchronizer.StartTimestamp, m.windowPeriodStartTime); err != nil {
 				m.log.Error("failed to delete old stake details data", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 
 			if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
 				m.log.Error("failed to set latest processed state root", "err", err)
+				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
 
