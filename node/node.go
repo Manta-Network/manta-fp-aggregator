@@ -385,6 +385,7 @@ func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.Node
 
 func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
 	var bSign *sign.Signature
+	n.log.Info("msg hash", "data", crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
 	bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
 	n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 
