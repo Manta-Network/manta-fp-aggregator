@@ -79,6 +79,7 @@ func (registry *Registry) StakerDetailsHandler() gin.HandlerFunc {
 			return
 		}
 		var result store.StakeDetails
+		var bTotalAmount uint64
 		var err error
 
 		result, err = registry.db.GetBatchStakeDetails(request.BatchId)
@@ -87,6 +88,16 @@ func (registry *Registry) StakerDetailsHandler() gin.HandlerFunc {
 			log.Error("failed to get staker details", "error", err)
 			return
 		}
+		if result.BatchID == request.BatchId {
+			bTotalAmount, err = registry.db.GetBatchTotalBabylonStakeAmount(request.BatchId)
+			if err != nil {
+				c.String(http.StatusInternalServerError, "failed to get stake amount")
+				log.Error("failed to get stake amount", "error", err)
+				return
+			}
+			result.TotalBTCVote = bTotalAmount
+		}
+
 		data, err := json.Marshal(result)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "failed to marshal staker details")

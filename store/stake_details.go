@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"strings"
 
 	"github.com/syndtr/goleveldb/leveldb"
@@ -34,6 +35,14 @@ type StakeDetails struct {
 	EthBlock          uint64       `json:"ethBlock"`
 	BitcoinQuorum     []QuorumNode `json:"bitcoinQuorum"`
 	SymbioticSignNode []string     `json:"symbioticSignNode"`
+}
+
+func (s *Storage) SetStakeDetailsTest(sD StakeDetails) error {
+	bsD, err := json.Marshal(sD)
+	if err != nil {
+		return err
+	}
+	return s.db.Put(getStakeDetailsKey(), bsD, nil)
 }
 
 func (s *Storage) SetStakeDetails(msg CreateBTCDelegation, stakeType int8) error {
@@ -201,7 +210,7 @@ func (s *Storage) DeleteStakeDetailsByTimestamp(start uint64, end uint64) error 
 	return nil
 }
 
-func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, fs WrapperSFs, symbioticFpSignCache []string, start uint64, end uint64) error {
+func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, vs *types.VoteStateRoot, symbioticFpSignCache []string, start uint64, end uint64) error {
 	sD, err := s.GetStakeDetailsByTimestamp(start, end)
 	if err != nil {
 		return err
@@ -210,14 +219,14 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 		return errors.New("the database does not have stake data")
 	}
 
-	sD.BabylonBlock = fs.BlockNumber
-	sD.StateRoot = fs.SubmitFinalitySignature.StateRoot
-	sD.EthBlock = fs.SubmitFinalitySignature.L1BlockNumber
+	sD.BabylonBlock = vs.BabylonHeight
+	sD.StateRoot = vs.StateRoot
+	sD.EthBlock = vs.L1BlockNumber
 	sD.SymbioticSignNode = symbioticFpSignCache
 
 	for fpPubkeyHex, sR := range fpSignCache {
 		for i, quorum := range sD.BitcoinQuorum {
-			if strings.ToLower(fpPubkeyHex) == strings.ToLower(quorum.FpBtcPk) && sR == fs.SubmitFinalitySignature.StateRoot {
+			if strings.ToLower(fpPubkeyHex) == strings.ToLower(quorum.FpBtcPk) && sR == vs.StateRoot {
 				sD.BitcoinQuorum[i].IsSign = true
 			}
 		}

@@ -205,9 +205,9 @@ func (n *Node) sign() {
 						continue
 					}
 				} else if requestBody.SignType == common3.SymbioticSignType {
-					if requestBody.StateRoot != "" {
+					if requestBody.StateRoot == "" {
 						n.log.Error("state root must not be nil or negative")
-						RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "symbiotic window period must not be nil or negative")
+						RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "state root must not be nil")
 						if err := n.wsClient.SendMsg(RpcResponse); err != nil {
 							n.log.Error("failed to send msg to manager", "err", err)
 						}

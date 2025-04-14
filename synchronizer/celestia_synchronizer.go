@@ -175,7 +175,7 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 				if err != nil {
 					return err
 				}
-				syncer.log.Info("celestia: success to store symbiotic fp blob data", "height", cHeader.Number)
+				syncer.log.Info("celestia: success to store symbiotic fp blob data", "height", cHeader.Number, "timestamp", cHeader.Timestamp)
 			}
 		}
 	}

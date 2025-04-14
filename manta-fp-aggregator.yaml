@@ -7,6 +7,7 @@ manager:
   node_members: ""
   fp_timeout: "30s"
   max_babylon_operator_num: 1000
+  output_submit_interval: 1200
   celestia_config:
     namespace: ""
     da_rpc: ""

@@ -42,6 +42,14 @@ type SignResult struct {
 	NonSignerPubkeys []*sign.G1Point `json:"non_signer_pubkeys"`
 }
 
+type VoteStateRoot struct {
+	L1BlockNumber uint64 `json:"l1_block_number"`
+	L1BlockHash   string `json:"l1_block_hash"`
+	L2BlockNumber uint64 `json:"l2_block_number"`
+	StateRoot     string `json:"state_root"`
+	BabylonHeight uint64 `json:"babylon_height"`
+}
+
 type Method string
 
 const (
