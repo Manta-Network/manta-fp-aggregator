@@ -462,6 +462,15 @@ func (m *Manager) work() {
 				TotalMantaStake: symbioticFpTotalStakeAmount,
 			}
 
+			signatureIsValid, err := sign.VerifySig(signature.G1Affine, g2Point.G2Affine, crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)))
+			if err != nil {
+				m.log.Error("failed to check signature is valid", "err", err)
+				continue
+			}
+			m.log.Info("signature", "is", signatureIsValid)
+			fmt.Println(finalityBatch)
+			fmt.Println(finalityNonSignerAndSignature)
+
 			tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(1))
 			if err != nil {
 				m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
