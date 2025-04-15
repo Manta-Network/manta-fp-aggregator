@@ -152,6 +152,8 @@ func runNode(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecyc
 			return nil, err
 		}
 	}
+	logger.Info("create keyPairs", "pubkey:", keyPairs.PubKey.String())
+	logger.Info("should register", "is", shouldRegister)
 
 	db, err := store.NewStorage(cfg.Node.LevelDbFolder)
 	if err != nil {
