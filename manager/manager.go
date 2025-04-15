@@ -364,7 +364,7 @@ func (m *Manager) work() {
 			}
 
 			if uint64(m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) < op.Timestamp.Uint64() {
-				m.log.Info(fmt.Sprintf("waiting for the celestia block to be synchronized to the timestamp at %v, scanned timestamp: %v", op.Timestamp.Uint64(), m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()))
+				m.log.Info(fmt.Sprintf("waiting for the celestia block to be synchronized to the timestamp at %v, scanned timestamp: %v", op.Timestamp.Uint64(), m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time()))
 				continue
 			}
 
