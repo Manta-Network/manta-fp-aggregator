@@ -260,7 +260,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	m.wg.Add(1)
 	go m.work()
-	m.log.Info("manager is starting......")
+	m.log.Info("manager is starting......", "address", m.from.String())
 	return nil
 }
 
@@ -432,7 +432,6 @@ func (m *Manager) work() {
 				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
-			m.log.Info("msg hash", "data", crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)))
 			finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
 				StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
 				L2BlockNumber: big.NewInt(int64(voteStateRoot.L2BlockNumber)),
@@ -468,8 +467,6 @@ func (m *Manager) work() {
 				continue
 			}
 			m.log.Info("signature", "is", signatureIsValid)
-			fmt.Println(finalityBatch)
-			fmt.Println(finalityNonSignerAndSignature)
 
 			tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(1))
 			if err != nil {
