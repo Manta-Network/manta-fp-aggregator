@@ -468,7 +468,7 @@ func (m *Manager) work() {
 			}
 			m.log.Info("signature", "is", signatureIsValid)
 
-			tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(1))
+			tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(100000))
 			if err != nil {
 				m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
 				m.windowPeriodStartTime = op.Timestamp.Uint64()
