@@ -60,6 +60,7 @@ type Manager struct {
 	mu                       sync.Mutex
 	windowPeriodStartTime    uint64
 	outputSubmissionInterval uint64
+	tickerController         bool
 
 	ctx     context.Context
 	stopped atomic.Bool
@@ -189,6 +190,7 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		from:                     crypto.PubkeyToAddress(priv.PublicKey),
 		signTimeout:              cfg.Manager.SignTimeout,
 		fPTimeout:                cfg.Manager.FPTimeout,
+		tickerController:         true,
 		babylonSynchronizer:      babylonSynchronizer,
 		ethSynchronizer:          ethSynchronizer,
 		ethEventProcess:          ethEventProcess,
@@ -342,6 +344,10 @@ func (m *Manager) work() {
 				}
 			}(txMsg)
 		case <-fpTicker.C:
+			if !m.tickerController {
+				m.log.Warn("the previous state root has not been processed yet")
+				continue
+			}
 			opCtx, opCancel := context.WithTimeout(m.ctx, time.Duration(m.outputSubmissionInterval)*time.Second)
 			defer opCancel()
 
@@ -362,6 +368,7 @@ func (m *Manager) work() {
 				continue
 			}
 
+			m.tickerController = false
 			m.log.Info("start counting fp signatures", "start", m.windowPeriodStartTime, "end", op.Timestamp.Uint64())
 
 			done := make(chan struct{}, 1)
@@ -385,12 +392,15 @@ func (m *Manager) work() {
 			select {
 			case <-done:
 				m.log.Info("success to process state root", "state_root", op.StateRoot, "err", err)
+				continue
 			case err := <-errCh:
 				m.log.Error("failed to process state root", "state_root", op.StateRoot, "err", err)
 				m.resetState(op)
+				continue
 			case <-opCtx.Done():
 				m.log.Warn("process state root timeout, skip", "state_root", op.StateRoot)
 				m.resetState(op)
+				continue
 			}
 
 		case <-m.done:
@@ -424,6 +434,7 @@ func (m *Manager) resetState(op *store.OutputProposed) {
 	defer m.mu.Unlock()
 
 	m.windowPeriodStartTime = op.Timestamp.Uint64()
+	m.tickerController = true
 }
 
 func (m *Manager) processStateRoot(op *store.OutputProposed) error {
