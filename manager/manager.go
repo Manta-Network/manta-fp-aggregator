@@ -342,14 +342,16 @@ func (m *Manager) work() {
 				}
 			}(txMsg)
 		case <-fpTicker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(m.outputSubmissionInterval)*time.Second)
+			opCtx, opCancel := context.WithTimeout(m.ctx, time.Duration(m.outputSubmissionInterval)*time.Second)
+			defer opCancel()
 
 			op, err := m.db.GetLatestUnprocessedStateRoot(m.windowPeriodStartTime, m.outputSubmissionInterval)
 			if err != nil {
 				m.log.Error("failed to get latest unprocessed state root", "err", err)
+				continue
 			}
 
-			if op == nil {
+			if op == nil || !m.checkSyncStatus(op) {
 				m.log.Warn("no more state root need to processed", "start", m.windowPeriodStartTime, "end", m.windowPeriodStartTime+m.outputSubmissionInterval+60)
 				continue
 			}
@@ -360,179 +362,199 @@ func (m *Manager) work() {
 				continue
 			}
 
-			if uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) < op.Timestamp.Uint64() {
-				m.log.Info(fmt.Sprintf("waiting for the babylon block to be synchronized to the timestamp at %v, scanned timestamp: %v", op.Timestamp.Uint64(), m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()))
-				continue
-			}
-
-			if uint64(m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) < op.Timestamp.Uint64() {
-				m.log.Info(fmt.Sprintf("waiting for the celestia block to be synchronized to the timestamp at %v, scanned timestamp: %v", op.Timestamp.Uint64(), m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time()))
-				continue
-			}
-
 			m.log.Info("start counting fp signatures", "start", m.windowPeriodStartTime, "end", op.Timestamp.Uint64())
 
-			done := make(chan bool)
+			done := make(chan struct{}, 1)
+			errCh := make(chan error, 1)
+
 			go func() {
-				defer cancel()
+				defer func() {
+					close(done)
+					opCancel()
+				}()
 
-				finalitySignature, voteStateRoot, babylonFpSignCache, symbioticFpSignCache, symbioticFpTotalStakeAmount, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
-				m.log.Info("success to count fp signatures", "result", voteStateRoot)
-				if err != nil {
-					m.log.Error("failed to get max sign state root", "err", err)
+				if err := m.processStateRoot(op); err != nil {
+					m.resetState(op)
+					errCh <- err
 					return
 				}
-
-				var signature *sign.G1Point
-				var g2Point *sign.G2Point
-				var NonSignerPubkeys []finality.BN254G1Point
-
-				var request types.SignMsgRequest
-				if finalitySignature != nil {
-					request.SignType = common2.BabylonSignType
-					request.BlockNumber = big.NewInt(int64(finalitySignature.BlockNumber))
-					request.TxType = common2.MsgSubmitFinalitySignatureType
-					request.TxHash = finalitySignature.TransactionHash
-					request.StateRoot = (*voteStateRoot).StateRoot
-					voteStateRoot.BabylonHeight = finalitySignature.BlockNumber
-				} else if len(symbioticFpSignCache) != 0 {
-					request.SignType = common2.SymbioticSignType
-					request.StateRoot = (*voteStateRoot).StateRoot
-					voteStateRoot.BabylonHeight = uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Height)
-				} else {
-					m.log.Warn("no fp signature, skip this state root", "state_root", op.StateRoot)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-
-				res, err := m.SignMsgBatch(request)
-				if errors.Is(err, errNotEnoughSignNode) || errors.Is(err, errNotEnoughVoteNode) {
-					m.log.Error("not enough available nodes to sign or not enough available nodes to vote")
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				} else if err != nil {
-					m.log.Error("failed to sign msg", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-				m.log.Info("success to sign msg", "signature", res.Signature)
-
-				signature = res.Signature
-				g2Point = res.G2Point
-				for _, v := range res.NonSignerPubkeys {
-					NonSignerPubkeys = append(NonSignerPubkeys, finality.BN254G1Point{
-						X: v.X.BigInt(new(big.Int)),
-						Y: v.Y.BigInt(new(big.Int)),
-					})
-				}
-				err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, voteStateRoot, symbioticFpSignCache, m.windowPeriodStartTime, op.Timestamp.Uint64())
-				if err != nil {
-					m.log.Error("failed to store batch stake details", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-
-				opts, err := client.NewTransactOpts(m.ctx, m.ethChainID, m.privateKey)
-				if err != nil {
-					m.log.Error("failed to new transact opts", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-				finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
-					StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
-					L2BlockNumber: big.NewInt(int64(voteStateRoot.L2BlockNumber)),
-					L1BlockHash:   common.HexToHash(voteStateRoot.L1BlockHash),
-					L1BlockNumber: big.NewInt(int64(voteStateRoot.L1BlockNumber)),
-					MsgHash:       crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)),
-				}
-
-				totalBtcStake, err := m.db.GetBatchTotalBabylonStakeAmount(m.batchId)
-				if err != nil {
-					m.log.Error("failed to get total btc stake", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-
-				finalityNonSignerAndSignature := finality.IBLSApkRegistryFinalityNonSignerAndSignature{
-					NonSignerPubkeys: NonSignerPubkeys,
-					ApkG2: finality.BN254G2Point{
-						X: [2]*big.Int{g2Point.X.A1.BigInt(new(big.Int)), g2Point.X.A0.BigInt(new(big.Int))},
-						Y: [2]*big.Int{g2Point.Y.A1.BigInt(new(big.Int)), g2Point.Y.A0.BigInt(new(big.Int))},
-					},
-					Sigma: finality.BN254G1Point{
-						X: signature.X.BigInt(new(big.Int)),
-						Y: signature.Y.BigInt(new(big.Int)),
-					},
-					TotalBtcStake:   big.NewInt(int64(totalBtcStake)),
-					TotalMantaStake: symbioticFpTotalStakeAmount,
-				}
-
-				signatureIsValid, err := sign.VerifySig(signature.G1Affine, g2Point.G2Affine, crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)))
-				if err != nil {
-					m.log.Error("failed to check signature is valid", "err", err)
-					return
-				}
-				m.log.Info("signature", "is", signatureIsValid)
-
-				tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(100000))
-				if err != nil {
-					m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-				rTx, err := m.rawFrmContract.RawTransact(opts, tx.Data())
-				if err != nil {
-					m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-				err = m.ethClient.SendTransaction(m.ctx, tx)
-				if err != nil {
-					m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-
-				receipt, err := client.GetTransactionReceipt(m.ctx, m.ethClient, rTx.Hash())
-				if err != nil {
-					m.log.Error("failed to get verify finality transaction receipt", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-
-				m.log.Info("success to send verify finality signature transaction", "tx_hash", receipt.TxHash.String())
-
-				if err = m.db.DeleteStakeDetailsByTimestamp(m.babylonSynchronizer.StartTimestamp, m.windowPeriodStartTime); err != nil {
-					m.log.Error("failed to delete old stake details data", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-
-				if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
-					m.log.Error("failed to set latest processed state root", "err", err)
-					m.windowPeriodStartTime = op.Timestamp.Uint64()
-					return
-				}
-
-				m.batchId++
-				m.windowPeriodStartTime = op.Timestamp.Uint64()
-
-				done <- true
+				m.resetState(op)
+				done <- struct{}{}
 			}()
 
 			select {
 			case <-done:
-				continue
-			case <-ctx.Done():
-				m.log.Warn("failed to modify the challenge period", "state_root", op.StateRoot)
-				m.windowPeriodStartTime = op.Timestamp.Uint64()
-				continue
+				m.log.Info("success to process state root", "state_root", op.StateRoot, "err", err)
+			case err := <-errCh:
+				m.log.Error("failed to process state root", "state_root", op.StateRoot, "err", err)
+				m.resetState(op)
+			case <-opCtx.Done():
+				m.log.Warn("process state root timeout, skip", "state_root", op.StateRoot)
+				m.resetState(op)
 			}
 
 		case <-m.done:
 			return
 		}
 	}
+}
+
+func (m *Manager) checkSyncStatus(op *store.OutputProposed) bool {
+	babylonSynced := uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= op.Timestamp.Uint64()
+	celestiaSynced := uint64(m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) >= op.Timestamp.Uint64()
+
+	if !babylonSynced {
+		m.log.Warn("Babylon sync not completed",
+			"required", op.Timestamp.Uint64(),
+			"current", m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
+		return false
+	}
+
+	if !celestiaSynced {
+		m.log.Warn("Celestia sync not completed",
+			"required", op.Timestamp.Uint64(),
+			"current", m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix())
+		return false
+	}
+	return true
+}
+
+func (m *Manager) resetState(op *store.OutputProposed) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.windowPeriodStartTime = op.Timestamp.Uint64()
+}
+
+func (m *Manager) processStateRoot(op *store.OutputProposed) error {
+	finalitySignature, voteStateRoot, babylonFpSignCache, symbioticFpSignCache, symbioticFpTotalStakeAmount, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
+	m.log.Info("success to count fp signatures", "result", voteStateRoot)
+	if err != nil {
+		m.log.Error("failed to get max sign state root", "err", err)
+		return err
+	}
+
+	var signature *sign.G1Point
+	var g2Point *sign.G2Point
+	var NonSignerPubkeys []finality.BN254G1Point
+
+	var request types.SignMsgRequest
+	if finalitySignature != nil {
+		request.SignType = common2.BabylonSignType
+		request.BlockNumber = big.NewInt(int64(finalitySignature.BlockNumber))
+		request.TxType = common2.MsgSubmitFinalitySignatureType
+		request.TxHash = finalitySignature.TransactionHash
+		request.StateRoot = (*voteStateRoot).StateRoot
+		voteStateRoot.BabylonHeight = finalitySignature.BlockNumber
+	} else if len(symbioticFpSignCache) != 0 {
+		request.SignType = common2.SymbioticSignType
+		request.StateRoot = (*voteStateRoot).StateRoot
+		voteStateRoot.BabylonHeight = uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Height)
+	} else {
+		m.log.Warn("no fp signature, skip this state root", "state_root", op.StateRoot)
+		return err
+	}
+
+	res, err := m.SignMsgBatch(request)
+	if errors.Is(err, errNotEnoughSignNode) || errors.Is(err, errNotEnoughVoteNode) {
+		m.log.Error("not enough available nodes to sign or not enough available nodes to vote")
+		return err
+	} else if err != nil {
+		m.log.Error("failed to sign msg", "err", err)
+		return err
+	}
+	m.log.Info("success to sign msg", "signature", res.Signature)
+
+	signature = res.Signature
+	g2Point = res.G2Point
+	for _, v := range res.NonSignerPubkeys {
+		NonSignerPubkeys = append(NonSignerPubkeys, finality.BN254G1Point{
+			X: v.X.BigInt(new(big.Int)),
+			Y: v.Y.BigInt(new(big.Int)),
+		})
+	}
+	err = m.db.SetBatchStakeDetails(m.batchId, babylonFpSignCache, voteStateRoot, symbioticFpSignCache, m.windowPeriodStartTime, op.Timestamp.Uint64())
+	if err != nil {
+		m.log.Error("failed to store batch stake details", "err", err)
+		return err
+	}
+
+	opts, err := client.NewTransactOpts(m.ctx, m.ethChainID, m.privateKey)
+	if err != nil {
+		m.log.Error("failed to new transact opts", "err", err)
+		return err
+	}
+	finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
+		StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
+		L2BlockNumber: big.NewInt(int64(voteStateRoot.L2BlockNumber)),
+		L1BlockHash:   common.HexToHash(voteStateRoot.L1BlockHash),
+		L1BlockNumber: big.NewInt(int64(voteStateRoot.L1BlockNumber)),
+		MsgHash:       crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)),
+	}
+
+	totalBtcStake, err := m.db.GetBatchTotalBabylonStakeAmount(m.batchId)
+	if err != nil {
+		m.log.Error("failed to get total btc stake", "err", err)
+		return err
+	}
+
+	finalityNonSignerAndSignature := finality.IBLSApkRegistryFinalityNonSignerAndSignature{
+		NonSignerPubkeys: NonSignerPubkeys,
+		ApkG2: finality.BN254G2Point{
+			X: [2]*big.Int{g2Point.X.A1.BigInt(new(big.Int)), g2Point.X.A0.BigInt(new(big.Int))},
+			Y: [2]*big.Int{g2Point.Y.A1.BigInt(new(big.Int)), g2Point.Y.A0.BigInt(new(big.Int))},
+		},
+		Sigma: finality.BN254G1Point{
+			X: signature.X.BigInt(new(big.Int)),
+			Y: signature.Y.BigInt(new(big.Int)),
+		},
+		TotalBtcStake:   big.NewInt(int64(totalBtcStake)),
+		TotalMantaStake: symbioticFpTotalStakeAmount,
+	}
+
+	signatureIsValid, err := sign.VerifySig(signature.G1Affine, g2Point.G2Affine, crypto.Keccak256Hash(common.Hex2Bytes(voteStateRoot.StateRoot)))
+	if err != nil {
+		m.log.Error("failed to check signature is valid", "err", err)
+		return err
+	}
+	m.log.Info("signature", "is", signatureIsValid)
+
+	tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(100000))
+	if err != nil {
+		m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
+		return err
+	}
+	rTx, err := m.rawFrmContract.RawTransact(opts, tx.Data())
+	if err != nil {
+		m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
+		return err
+	}
+	err = m.ethClient.SendTransaction(m.ctx, tx)
+	if err != nil {
+		m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
+		return err
+	}
+
+	receipt, err := client.GetTransactionReceipt(m.ctx, m.ethClient, rTx.Hash())
+	if err != nil {
+		m.log.Error("failed to get verify finality transaction receipt", "err", err)
+		return err
+	}
+
+	m.log.Info("success to send verify finality signature transaction", "tx_hash", receipt.TxHash.String())
+
+	if err = m.db.DeleteStakeDetailsByTimestamp(m.babylonSynchronizer.StartTimestamp, m.windowPeriodStartTime); err != nil {
+		m.log.Error("failed to delete old stake details data", "err", err)
+		return err
+	}
+
+	if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
+		m.log.Error("failed to set latest processed state root", "err", err)
+		return err
+	}
+
+	atomic.AddUint64(&m.batchId, 1)
+	return nil
 }
 
 func (m *Manager) SignMsgBatch(request types.SignMsgRequest) (*types.SignResult, error) {
