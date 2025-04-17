@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Manta-Network/manta-fp-aggregator/sign"
 	"io"
 	"math/big"
 	"math/rand"
@@ -33,6 +32,7 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/config"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/router"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
+	"github.com/Manta-Network/manta-fp-aggregator/sign"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer"
 	"github.com/Manta-Network/manta-fp-aggregator/ws/server"
@@ -342,7 +342,7 @@ func (m *Manager) work() {
 				}
 			}(txMsg)
 		case <-fpTicker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*m.fPTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(m.outputSubmissionInterval)*time.Second)
 
 			op, err := m.db.GetLatestUnprocessedStateRoot(m.windowPeriodStartTime, m.outputSubmissionInterval)
 			if err != nil {
@@ -524,6 +524,7 @@ func (m *Manager) work() {
 			case <-done:
 				continue
 			case <-ctx.Done():
+				m.log.Warn("failed to modify the challenge period", "state_root", op.StateRoot)
 				m.windowPeriodStartTime = op.Timestamp.Uint64()
 				continue
 			}
