@@ -142,7 +142,7 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 	if logs.ToBlockHeader.Number.Cmp(lastHeader.Number) != 0 {
 		return fmt.Errorf("eth: mismatch in FilterLog#ToBlock number")
 	} else if logs.ToBlockHeader.Hash() != lastHeader.Hash() {
-		return fmt.Errorf("eth: mismatch in FitlerLog#ToBlock block hash")
+		return fmt.Errorf("eth: mismatch in FilterLog#ToBlock block hash")
 	}
 
 	if len(logs.Logs) > 0 {
