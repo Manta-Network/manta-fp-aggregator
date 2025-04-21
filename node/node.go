@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 
+	"github.com/Manta-Network/manta-fp-aggregator/bindings/bls"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
 	common3 "github.com/Manta-Network/manta-fp-aggregator/common"
@@ -28,6 +30,7 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer"
 	wsclient "github.com/Manta-Network/manta-fp-aggregator/ws/client"
 
+	"github.com/consensys/gnark-crypto/ecc/bn254"
 	tdtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
@@ -60,7 +63,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	pubkey := crypto.CompressPubkey(&privKey.PublicKey)
 	pubkeyHex := hex.EncodeToString(pubkey)
 	logger.Info(fmt.Sprintf("pub key is (%s) \n", pubkeyHex))
-	if shouldRegister || from.String() == "0xCa7c9907EC2e6641Aed7ed9e380Ce61879D47891" {
+	if shouldRegister {
 		logger.Info("register to operator ...")
 		tx, err := registerOperator(ctx, cfg, privKey, pubkeyHex, keyPairs)
 		if err != nil {
@@ -421,10 +424,10 @@ func registerOperator(ctx context.Context, cfg *config.Config, priKey *ecdsa.Pri
 	if err != nil {
 		return nil, fmt.Errorf("failed to new FinalityRelayerManager contract, err: %v", err)
 	}
-	//bar, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to new BLSApkRegistry contract, err: %v", err)
-	//}
+	bar, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
+	if err != nil {
+		return nil, fmt.Errorf("failed to new BLSApkRegistry contract, err: %v", err)
+	}
 	fParsed, err := finality.FinalityRelayerManagerMetaData.GetAbi()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get FinalityRelayerManager contract abi, err: %v", err)
@@ -433,70 +436,70 @@ func registerOperator(ctx context.Context, cfg *config.Config, priKey *ecdsa.Pri
 		common.HexToAddress(cfg.Contracts.FrmContractAddress), *fParsed, ethCli, ethCli,
 		ethCli,
 	)
-	//bParsed, err := bls.BLSApkRegistryMetaData.GetAbi()
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to get BLSApkRegistry contract abi, err: %v", err)
-	//}
-	//rawBarContract := bind.NewBoundContract(
-	//	common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
-	//	ethCli,
-	//)
+	bParsed, err := bls.BLSApkRegistryMetaData.GetAbi()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get BLSApkRegistry contract abi, err: %v", err)
+	}
+	rawBarContract := bind.NewBoundContract(
+		common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
+		ethCli,
+	)
 
 	topts, err := client.NewTransactOpts(ctx, cfg.EthChainID, priKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new transaction option, err: %v", err)
 	}
 
-	//nodeAddr := crypto.PubkeyToAddress(priKey.PublicKey)
-	//latestBlock, err := ethCli.BlockNumber(ctx)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to get latest block, err: %v", err)
-	//}
+	nodeAddr := crypto.PubkeyToAddress(priKey.PublicKey)
+	latestBlock, err := ethCli.BlockNumber(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest block, err: %v", err)
+	}
 
-	//cOpts := &bind.CallOpts{
-	//	BlockNumber: big.NewInt(int64(latestBlock)),
-	//	From:        nodeAddr,
-	//}
+	cOpts := &bind.CallOpts{
+		BlockNumber: big.NewInt(int64(latestBlock)),
+		From:        nodeAddr,
+	}
 
-	//msg, err := bar.GetPubkeyRegMessageHash(cOpts, nodeAddr)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to get PubkeyRegistrationMessageHash, err: %v", err)
-	//}
+	msg, err := bar.GetPubkeyRegMessageHash(cOpts, nodeAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PubkeyRegistrationMessageHash, err: %v", err)
+	}
 
-	//sigMsg := new(bn254.G1Affine).ScalarMultiplication(sign.NewG1Point(msg.X, msg.Y).G1Affine, keyPairs.PrivKey.BigInt(new(big.Int)))
+	sigMsg := new(bn254.G1Affine).ScalarMultiplication(sign.NewG1Point(msg.X, msg.Y).G1Affine, keyPairs.PrivKey.BigInt(new(big.Int)))
 
-	//params := bls.IBLSApkRegistryPubkeyRegistrationParams{
-	//	PubkeyRegistrationSignature: bls.BN254G1Point{
-	//		X: sigMsg.X.BigInt(new(big.Int)),
-	//		Y: sigMsg.Y.BigInt(new(big.Int)),
-	//	},
-	//	PubkeyG1: bls.BN254G1Point{
-	//		X: keyPairs.GetPubKeyG1().X.BigInt(new(big.Int)),
-	//		Y: keyPairs.GetPubKeyG1().Y.BigInt(new(big.Int)),
-	//	},
-	//	PubkeyG2: bls.BN254G2Point{
-	//		X: [2]*big.Int{keyPairs.GetPubKeyG2().X.A1.BigInt(new(big.Int)), keyPairs.GetPubKeyG2().X.A0.BigInt(new(big.Int))},
-	//		Y: [2]*big.Int{keyPairs.GetPubKeyG2().Y.A1.BigInt(new(big.Int)), keyPairs.GetPubKeyG2().Y.A0.BigInt(new(big.Int))},
-	//	},
-	//}
+	params := bls.IBLSApkRegistryPubkeyRegistrationParams{
+		PubkeyRegistrationSignature: bls.BN254G1Point{
+			X: sigMsg.X.BigInt(new(big.Int)),
+			Y: sigMsg.Y.BigInt(new(big.Int)),
+		},
+		PubkeyG1: bls.BN254G1Point{
+			X: keyPairs.GetPubKeyG1().X.BigInt(new(big.Int)),
+			Y: keyPairs.GetPubKeyG1().Y.BigInt(new(big.Int)),
+		},
+		PubkeyG2: bls.BN254G2Point{
+			X: [2]*big.Int{keyPairs.GetPubKeyG2().X.A1.BigInt(new(big.Int)), keyPairs.GetPubKeyG2().X.A0.BigInt(new(big.Int))},
+			Y: [2]*big.Int{keyPairs.GetPubKeyG2().Y.A1.BigInt(new(big.Int)), keyPairs.GetPubKeyG2().Y.A0.BigInt(new(big.Int))},
+		},
+	}
 
-	//regBlsTx, err := bar.RegisterBLSPublicKey(topts, nodeAddr, params, msg)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to craft RegisterBLSPublicKey transaction, err: %v", err)
-	//}
-	//fRegBlsTx, err := rawBarContract.RawTransact(topts, regBlsTx.Data())
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to raw RegisterBLSPublicKey transaction, err: %v", err)
-	//}
-	//err = ethCli.SendTransaction(ctx, fRegBlsTx)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to send RegisterBLSPublicKey transaction, err: %v", err)
-	//}
-	//
-	//_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx.Hash())
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, fRegBlsTx.Hash().String())
-	//}
+	regBlsTx, err := bar.RegisterBLSPublicKey(topts, nodeAddr, params, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to craft RegisterBLSPublicKey transaction, err: %v", err)
+	}
+	fRegBlsTx, err := rawBarContract.RawTransact(topts, regBlsTx.Data())
+	if err != nil {
+		return nil, fmt.Errorf("failed to raw RegisterBLSPublicKey transaction, err: %v", err)
+	}
+	err = ethCli.SendTransaction(ctx, fRegBlsTx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send RegisterBLSPublicKey transaction, err: %v", err)
+	}
+
+	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, fRegBlsTx.Hash().String())
+	}
 
 	regOTx, err := frmContract.RegisterOperator(topts, node)
 	if err != nil {
