@@ -748,7 +748,7 @@ func (m *Manager) getMaxSignStateRoot(start, end uint64) (*store.WrapperSFs, *ty
 
 	for address, v := range symbioticFpSignCache {
 		if v == maxSignStateRoot {
-			amount, err := m.getSymbioticOperatorStakeAmount(address)
+			amount, err := m.getSymbioticOperatorStakeAmount(strings.ToLower(address))
 			if err != nil {
 				m.log.Error("failed to get operator stake amount", "address", address, "err", err)
 				continue
