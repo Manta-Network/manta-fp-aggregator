@@ -211,12 +211,17 @@ func (s *Storage) DeleteStakeDetailsByTimestamp(start uint64, end uint64) error 
 }
 
 func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, vs *types.VoteStateRoot, symbioticFpSignCache []string, start uint64, end uint64) error {
+	var sD *StakeDetails
 	sD, err := s.GetStakeDetailsByTimestamp(start, end)
 	if err != nil {
 		return err
 	}
+
 	if sD == nil {
-		return errors.New("the database does not have stake data")
+		*sD, err = s.GetStakeDetails()
+		if err != nil {
+			return err
+		}
 	}
 
 	sD.BabylonBlock = vs.BabylonHeight
