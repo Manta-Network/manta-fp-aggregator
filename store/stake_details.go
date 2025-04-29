@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"strings"
 
@@ -224,6 +225,7 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 		}
 	}
 
+	sD.BatchID = batchID
 	sD.BabylonBlock = vs.BabylonHeight
 	sD.StateRoot = vs.StateRoot
 	sD.EthBlock = vs.L1BlockNumber
@@ -241,6 +243,10 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 	if err != nil {
 		return err
 	}
+	fmt.Println("==============")
+	fmt.Println(batchID)
+	fmt.Println(sD)
+	fmt.Println("=================")
 
 	return s.db.Put(getBatchStakeDetailsKey(batchID), bsD, nil)
 }
