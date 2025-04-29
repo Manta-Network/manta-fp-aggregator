@@ -357,12 +357,16 @@ func (m *Manager) work() {
 				continue
 			}
 
-			if op == nil || !m.checkSyncStatus(op) {
+			if op == nil {
 				if m.ethSynchronizer.HeaderTraversal.LastTraversedHeader().Time > m.windowPeriodStartTime+m.outputSubmissionInterval {
 					m.windowPeriodStartTime = m.windowPeriodStartTime + m.outputSubmissionInterval
 					m.log.Warn("no more state root need to processed, skip", "next_start", m.windowPeriodStartTime)
 				}
 				m.log.Warn("no more state root need to processed", "start", m.windowPeriodStartTime, "end", m.windowPeriodStartTime+m.outputSubmissionInterval+60)
+				continue
+			}
+
+			if !m.checkSyncStatus(op) {
 				continue
 			}
 
