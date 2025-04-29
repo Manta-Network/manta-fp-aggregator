@@ -358,6 +358,10 @@ func (m *Manager) work() {
 			}
 
 			if op == nil || !m.checkSyncStatus(op) {
+				if m.ethSynchronizer.HeaderTraversal.LastTraversedHeader().Time > m.windowPeriodStartTime+m.outputSubmissionInterval {
+					m.windowPeriodStartTime = m.windowPeriodStartTime + m.outputSubmissionInterval
+					m.log.Warn("no more state root need to processed, skip", "next_start", m.windowPeriodStartTime)
+				}
 				m.log.Warn("no more state root need to processed", "start", m.windowPeriodStartTime, "end", m.windowPeriodStartTime+m.outputSubmissionInterval+60)
 				continue
 			}
@@ -391,14 +395,14 @@ func (m *Manager) work() {
 
 			select {
 			case <-done:
-				m.log.Info("success to process state root", "state_root", op.StateRoot, "err", err)
+				m.log.Info("success to process state root", "state_root", op.StateRoot, "batch_id", m.batchId-1)
 				continue
 			case err := <-errCh:
 				m.log.Error("failed to process state root", "state_root", op.StateRoot, "err", err)
 				m.resetState(op)
 				continue
 			case <-opCtx.Done():
-				m.log.Warn("process state root timeout, skip", "state_root", op.StateRoot, "batch_id", m.batchId-1)
+				m.log.Warn("process state root timeout, skip", "state_root", op.StateRoot)
 				m.resetState(op)
 				continue
 			}
