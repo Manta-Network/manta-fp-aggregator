@@ -398,7 +398,7 @@ func (m *Manager) work() {
 				m.resetState(op)
 				continue
 			case <-opCtx.Done():
-				m.log.Warn("process state root timeout, skip", "state_root", op.StateRoot)
+				m.log.Warn("process state root timeout, skip", "state_root", op.StateRoot, "batch_id", m.batchId-1)
 				m.resetState(op)
 				continue
 			}
