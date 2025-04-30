@@ -388,7 +388,7 @@ func (m *Manager) work() {
 					opCancel()
 				}()
 
-				if err := m.processStateRoot(op, opCtx); err != nil {
+				if err := m.processStateRoot(op); err != nil {
 					m.resetState(op)
 					errCh <- err
 					return
@@ -445,7 +445,7 @@ func (m *Manager) resetState(op *store.OutputProposed) {
 	m.tickerController = true
 }
 
-func (m *Manager) processStateRoot(op *store.OutputProposed, ctx context.Context) error {
+func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 	finalitySignature, voteStateRoot, babylonFpSignCache, symbioticFpSignCache, symbioticFpTotalStakeAmount, err := m.getMaxSignStateRoot(m.windowPeriodStartTime, op.Timestamp.Uint64())
 	m.log.Info("success to count fp signatures", "result", voteStateRoot)
 	if err != nil {
@@ -492,7 +492,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed, ctx context.Context
 			Y: v.Y.BigInt(new(big.Int)),
 		})
 	}
-	err = m.getLatestConfirmBatchId(ctx)
+	err = m.getLatestConfirmBatchId()
 	if err != nil {
 		m.log.Error("failed to get latest confirm batch id", "err", err)
 		return err
@@ -504,7 +504,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed, ctx context.Context
 		return err
 	}
 
-	opts, err := client.NewTransactOpts(ctx, m.ethChainID, m.privateKey)
+	opts, err := client.NewTransactOpts(context.Background(), m.ethChainID, m.privateKey)
 	if err != nil {
 		m.log.Error("failed to new transact opts", "err", err)
 		return err
@@ -554,13 +554,13 @@ func (m *Manager) processStateRoot(op *store.OutputProposed, ctx context.Context
 		m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
-	err = m.ethClient.SendTransaction(ctx, tx)
+	err = m.ethClient.SendTransaction(context.Background(), tx)
 	if err != nil {
 		m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
 
-	receipt, err := client.GetTransactionReceipt(ctx, m.ethClient, rTx.Hash())
+	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, rTx.Hash())
 	if err != nil {
 		m.log.Error("failed to get verify finality transaction receipt", "err", err)
 		return err
@@ -836,8 +836,8 @@ func (m *Manager) getSymbioticOperatorStakeAmount(operator string) (*big.Int, er
 	return totalStaked, nil
 }
 
-func (m *Manager) getLatestConfirmBatchId(ctx context.Context) error {
-	latestBlock, err := m.ethClient.BlockNumber(ctx)
+func (m *Manager) getLatestConfirmBatchId() error {
+	latestBlock, err := m.ethClient.BlockNumber(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to get latest block, err: %v", err)
 	}
