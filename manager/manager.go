@@ -852,7 +852,7 @@ func (m *Manager) getLatestConfirmBatchId(ctx context.Context) error {
 		return err
 	}
 
-	m.batchId = id.Uint64() + 1
+	m.batchId = id.Uint64()
 
 	return nil
 }
