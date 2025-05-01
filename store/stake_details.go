@@ -151,16 +151,16 @@ func (s *Storage) SetStakeDetails(msg CreateBTCDelegation, stakeType int8) error
 	}
 }
 
-func (s *Storage) GetStakeDetails() (StakeDetails, error) {
+func (s *Storage) GetStakeDetails() (*StakeDetails, error) {
 	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
 	if err != nil {
-		return handleError(StakeDetails{}, err)
+		return handleError(&StakeDetails{}, err)
 	}
 	var sD StakeDetails
 	if err = json.Unmarshal(sDB, &sD); err != nil {
-		return StakeDetails{}, err
+		return &StakeDetails{}, err
 	}
-	return sD, nil
+	return &sD, nil
 }
 
 func (s *Storage) SetStakeDetailsByTimestamp(timestamp uint64) error {
@@ -219,7 +219,7 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 	}
 
 	if sD == nil {
-		*sD, err = s.GetStakeDetails()
+		sD, err = s.GetStakeDetails()
 		if err != nil {
 			return err
 		}
