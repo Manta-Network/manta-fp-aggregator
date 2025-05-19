@@ -462,8 +462,12 @@ func (m *Manager) resetState(op *store.OutputProposed) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if err := m.db.SetLatestProcessedStateRoot(*op); err != nil {
+		m.log.Error("failed to set latest processed state root")
+	}
 	m.windowPeriodStartTime = op.Timestamp.Uint64()
 	m.tickerController = true
+
 }
 
 func (m *Manager) processStateRoot(op *store.OutputProposed) error {
@@ -487,7 +491,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		request.StateRoot = voteStateRoot.StateRoot
 	} else {
 		m.log.Warn("no fp signature, skip this state root", "state_root", op.StateRoot)
-		return m.db.SetLatestProcessedStateRoot(*op)
+		return errors.New("no fp signature, skip this state root")
 	}
 
 	res, err := m.SignMsgBatch(request)
