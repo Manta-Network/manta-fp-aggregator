@@ -13,6 +13,7 @@ import (
 
 	"github.com/Manta-Network/manta-fp-aggregator/common/tasks"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
+	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer/node"
 
@@ -35,15 +36,16 @@ type CelestiaSynchronizer struct {
 	tasks             tasks.Group
 	log               log.Logger
 	namespace         share.Namespace
+	metrics           metrics.Metricer
 }
 
-func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, authToken string) (*CelestiaSynchronizer, error) {
-	cli, err := client.NewClient(ctx, cfg.Manager.CelestiaConfig.DaRpc, authToken)
+func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, authToken string, metricer metrics.Metricer) (*CelestiaSynchronizer, error) {
+	cli, err := client.NewClient(ctx, cfg.CelestiaConfig.DaRpc, authToken)
 	if err != nil {
 		return nil, err
 	}
 
-	nsBytes, err := hex.DecodeString(cfg.Manager.CelestiaConfig.Namespace)
+	nsBytes, err := hex.DecodeString(cfg.CelestiaConfig.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +94,7 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 		resourceCancel:  resCancel,
 		log:             logger,
 		namespace:       namespace,
+		metrics:         metricer,
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in celestia synchronizer: %w", err))
 		}},
@@ -102,6 +105,7 @@ func (syncer *CelestiaSynchronizer) Start() error {
 	tickerSyncer := time.NewTicker(time.Second * 2)
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
+			done := syncer.metrics.RecordCelestiaInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("celestia: retrying previous batch")
 			} else {
@@ -123,6 +127,7 @@ func (syncer *CelestiaSynchronizer) Start() error {
 			if err == nil {
 				syncer.headers = nil
 			}
+			done(err)
 		}
 		return nil
 	})
@@ -186,6 +191,9 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 	if err := syncer.db.UpdateCelestiaHeight(lastHeader.Height()); err != nil {
 		return err
 	}
+
+	syncer.metrics.RecordLatestCelestiaBlock(lastHeader.Height())
+	syncer.metrics.RecordCelestiaIndexedHeaders(len(blockHeaders))
 
 	return nil
 }

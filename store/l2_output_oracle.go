@@ -43,7 +43,7 @@ func (s *Storage) GetOutputProposedByTimestamp(timestamp uint64) (OutputProposed
 }
 
 func (s *Storage) GetLatestUnprocessedStateRoot(timestamp, limit uint64) (*OutputProposed, error) {
-	iter := s.db.NewIterator(&util.Range{Start: getOutputProposedKey(timestamp + 1), Limit: getOutputProposedKey(timestamp + limit*2)}, nil)
+	iter := s.db.NewIterator(&util.Range{Start: getOutputProposedKey(timestamp + 1), Limit: getOutputProposedKey(timestamp + limit)}, nil)
 	defer iter.Release()
 
 	if iter.Next() {
