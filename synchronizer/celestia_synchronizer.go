@@ -62,6 +62,7 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 	if err != nil {
 		return nil, err
 	}
+	dbLatestHeader = 6254790
 	var fromHeader *header.ExtendedHeader
 	if dbLatestHeader != 0 {
 		logger.Info("celestia: sync detected last indexed block", "number", dbLatestHeader)
