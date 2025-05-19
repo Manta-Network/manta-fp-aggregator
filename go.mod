@@ -35,6 +35,7 @@ require (
 	github.com/filecoin-project/go-jsonrpc v0.6.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/ipfs/go-datastore v0.6.0 // indirect
@@ -44,9 +45,12 @@ require (
 	github.com/libp2p/go-flow-metrics v0.1.0 // indirect
 	github.com/libp2p/go-libp2p-pubsub v0.11.0 // indirect
 	github.com/libp2p/go-msgio v0.3.0 // indirect
+	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/multiformats/go-multiaddr-fmt v0.1.0 // indirect
 	github.com/multiformats/go-multistream v0.5.0 // indirect
+	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
+	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.3 // indirect
 	go.opentelemetry.io/otel v1.24.0 // indirect
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect

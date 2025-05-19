@@ -11,6 +11,8 @@ type Config struct {
 	Node                   NodeConfig      `yaml:"node"`
 	Manager                ManagerConfig   `yaml:"manager"`
 	Contracts              ContractsConfig `yaml:"contracts"`
+	CelestiaConfig         CelestiaConfig  `yaml:"celestia_config"`
+	Metrics                MetricsConfig   `yaml:"metrics"`
 	EthStartingHeight      int64           `yaml:"eth_starting_height"`
 	BabylonStartingHeight  int64           `yaml:"babylon_starting_height"`
 	CelestiaStartingHeight int64           `yaml:"celestia_starting_height"`
@@ -20,6 +22,7 @@ type Config struct {
 	BabylonRpc             string          `yaml:"babylon_rpc"`
 	EthRpc                 string          `yaml:"eth_rpc"`
 	EthChainID             uint64          `yaml:"eth_chain_id"`
+	SymbioticStakeUrl      string          `yaml:"symbiotic_stake_url"`
 }
 
 type NodeConfig struct {
@@ -31,16 +34,14 @@ type NodeConfig struct {
 }
 
 type ManagerConfig struct {
-	LevelDbFolder         string         `yaml:"level_db_folder"`
-	WsAddr                string         `yaml:"ws_addr"`
-	HttpAddr              string         `yaml:"http_addr"`
-	SymbioticStakeUrl     string         `yaml:"symbiotic_stake_url"`
-	SignTimeout           time.Duration  `yaml:"sign_timeout"`
-	FPTimeout             time.Duration  `yaml:"fp_timeout"`
-	NodeMembers           string         `yaml:"node_members"`
-	MaxBabylonOperatorNum uint64         `yaml:"max_babylon_operator_num"`
-	CelestiaConfig        CelestiaConfig `yaml:"celestia_config"`
-	OutputSubmitInterval  time.Duration  `yaml:"output_submit_interval"`
+	LevelDbFolder         string        `yaml:"level_db_folder"`
+	WsAddr                string        `yaml:"ws_addr"`
+	HttpAddr              string        `yaml:"http_addr"`
+	SignTimeout           time.Duration `yaml:"sign_timeout"`
+	FPTimeout             time.Duration `yaml:"fp_timeout"`
+	NodeMembers           string        `yaml:"node_members"`
+	MaxBabylonOperatorNum uint64        `yaml:"max_babylon_operator_num"`
+	OutputSubmitInterval  time.Duration `yaml:"output_submit_interval"`
 }
 
 type ContractsConfig struct {
@@ -55,6 +56,11 @@ type CelestiaConfig struct {
 	Namespace string        `yaml:"namespace"`
 	DaRpc     string        `yaml:"da_rpc"`
 	Timeout   time.Duration `yaml:"timeout"`
+}
+
+type MetricsConfig struct {
+	ListenAddr string `yaml:"listen_addr"`
+	ListenPort int    `yaml:"listen_port"`
 }
 
 func DefaultConfiguration() *Config {
@@ -72,11 +78,16 @@ func DefaultConfiguration() *Config {
 			SignTimeout:   20,
 			FPTimeout:     30,
 		},
+		Metrics: MetricsConfig{
+			ListenAddr: "127.0.0.1",
+			ListenPort: 8082,
+		},
 		EthStartingHeight:      1,
 		BabylonStartingHeight:  1,
 		CelestiaStartingHeight: 1,
 		EthBlockStep:           100,
 		BabylonBlockStep:       10,
+		CelestiaBlockStep:      100,
 		EthChainID:             1,
 	}
 }

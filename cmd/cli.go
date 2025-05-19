@@ -57,7 +57,7 @@ var (
 )
 
 func newCli(GitCommit string, GitDate string) *cli.App {
-	nodeFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, KeyPairFlag}
+	nodeFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, KeyPairFlag, CelestiaAuthTokenFlag}
 	managerFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, CelestiaAuthTokenFlag}
 	peerIDFlags := []cli.Flag{PrivateKeyFlag}
 	return &cli.App{
@@ -116,6 +116,13 @@ func runNode(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecyc
 		return nil, errors.New("need to config private key")
 	}
 
+	var authToken string
+	if ctx.IsSet(CelestiaAuthTokenFlagName) {
+		authToken = ctx.String(CelestiaAuthTokenFlagName)
+	} else {
+		return nil, errors.New("need to config celestia auth token")
+	}
+
 	var keyPairs *sign.KeyPair
 	if ctx.IsSet(KeyPairFlagName) {
 		keyPairs, err = sign.MakeKeyPairFromString(ctx.String(KeyPairFlagName))
@@ -160,7 +167,7 @@ func runNode(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecyc
 		return nil, err
 	}
 
-	return node.NewFinalityNode(ctx.Context, db, privKey, keyPairs, shouldRegister, cfg, logger, shutdown)
+	return node.NewFinalityNode(ctx.Context, db, privKey, keyPairs, shouldRegister, cfg, logger, shutdown, authToken)
 }
 
 func runManager(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecycle, error) {

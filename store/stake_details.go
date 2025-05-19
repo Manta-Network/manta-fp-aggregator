@@ -3,8 +3,9 @@ package store
 import (
 	"encoding/json"
 	"errors"
-	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"strings"
+
+	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -150,16 +151,16 @@ func (s *Storage) SetStakeDetails(msg CreateBTCDelegation, stakeType int8) error
 	}
 }
 
-func (s *Storage) GetStakeDetails() (StakeDetails, error) {
+func (s *Storage) GetStakeDetails() (*StakeDetails, error) {
 	sDB, err := s.db.Get(getStakeDetailsKey(), nil)
 	if err != nil {
-		return handleError(StakeDetails{}, err)
+		return handleError(&StakeDetails{}, err)
 	}
 	var sD StakeDetails
 	if err = json.Unmarshal(sDB, &sD); err != nil {
-		return StakeDetails{}, err
+		return &StakeDetails{}, err
 	}
-	return sD, nil
+	return &sD, nil
 }
 
 func (s *Storage) SetStakeDetailsByTimestamp(timestamp uint64) error {
@@ -210,19 +211,26 @@ func (s *Storage) DeleteStakeDetailsByTimestamp(start uint64, end uint64) error 
 	return nil
 }
 
-func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, vs *types.VoteStateRoot, symbioticFpSignCache []string, start uint64, end uint64) error {
+func (s *Storage) SetBatchStakeDetails(batchID uint64, vs *types.VoteStateRoot, start uint64, end uint64) error {
+	var sD *StakeDetails
 	sD, err := s.GetStakeDetailsByTimestamp(start, end)
 	if err != nil {
 		return err
 	}
+
 	if sD == nil {
-		return errors.New("the database does not have stake data")
+		sD, err = s.GetStakeDetails()
+		if err != nil {
+			return err
+		}
 	}
 
+	sD.BatchID = batchID
 	sD.BabylonBlock = vs.BabylonHeight
 	sD.StateRoot = vs.StateRoot
 	sD.EthBlock = vs.L1BlockNumber
-	sD.SymbioticSignNode = symbioticFpSignCache
+	sD.SymbioticSignNode = vs.SymbioticFpSignList
+	fpSignCache := vs.BabylonFpSignCache
 
 	for fpPubkeyHex, sR := range fpSignCache {
 		for i, quorum := range sD.BitcoinQuorum {

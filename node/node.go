@@ -1,12 +1,16 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
+	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,14 +19,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	types2 "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/bls"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
+	"github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
-	common3 "github.com/Manta-Network/manta-fp-aggregator/common"
+	"github.com/Manta-Network/manta-fp-aggregator/common/httputil"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
+	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	common2 "github.com/Manta-Network/manta-fp-aggregator/node/common"
 	"github.com/Manta-Network/manta-fp-aggregator/sign"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
@@ -30,6 +37,7 @@ import (
 	wsclient "github.com/Manta-Network/manta-fp-aggregator/ws/client"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/prometheus/client_golang/prometheus"
 	tdtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
@@ -41,6 +49,7 @@ type Node struct {
 	privateKey *ecdsa.PrivateKey
 	from       common.Address
 
+	cfg      *config.Config
 	ctx      context.Context
 	cancel   context.CancelFunc
 	stopChan chan struct{}
@@ -49,22 +58,34 @@ type Node struct {
 	wsClient *wsclient.WSClients
 	keyPairs *sign.KeyPair
 
-	signTimeout      time.Duration
-	waitScanInterval time.Duration
-	signRequestChan  chan tdtypes.RPCRequest
-	synchronizer     *synchronizer.BabylonSynchronizer
-	txMsgChan        chan store.TxMessage
+	signTimeout          time.Duration
+	waitScanInterval     time.Duration
+	signRequestChan      chan tdtypes.RPCRequest
+	babylonSynchronizer  *synchronizer.BabylonSynchronizer
+	celestiaSynchronizer *synchronizer.CelestiaSynchronizer
+	txMsgChan            chan store.TxMessage
+
+	msmContract *sfp.MantaStakingMiddleware
+
+	metricsRegistry *prometheus.Registry
+	metrics         metrics.Metricer
+	metricsServer   *httputil.HTTPServer
 }
 
-func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.PrivateKey, keyPairs *sign.KeyPair, shouldRegister bool, cfg *config.Config, logger log.Logger, shutdown context.CancelCauseFunc) (*Node, error) {
+func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.PrivateKey, keyPairs *sign.KeyPair, shouldRegister bool, cfg *config.Config, logger log.Logger, shutdown context.CancelCauseFunc, authToken string) (*Node, error) {
 	from := crypto.PubkeyToAddress(privKey.PublicKey)
 
 	pubkey := crypto.CompressPubkey(&privKey.PublicKey)
 	pubkeyHex := hex.EncodeToString(pubkey)
 	logger.Info(fmt.Sprintf("pub key is (%s) \n", pubkeyHex))
+
+	ethCli, err := client.DialEthClientWithTimeout(ctx, cfg.EthRpc, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial eth client, err: %v", err)
+	}
 	if shouldRegister {
 		logger.Info("register to operator ...")
-		tx, err := registerOperator(ctx, cfg, privKey, pubkeyHex, keyPairs)
+		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, keyPairs)
 		if err != nil {
 			logger.Error("failed to register operator", "err", err)
 			return nil, err
@@ -72,32 +93,47 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 		logger.Info("success to register operator", "tx_hash", tx.Hash())
 	}
 
+	msmContract, err := sfp.NewMantaStakingMiddleware(common.HexToAddress(cfg.Contracts.MsmContractAddress), ethCli)
+	if err != nil {
+		return nil, err
+	}
+
 	wsClient, err := wsclient.NewWSClient(cfg.Node.WsAddr, "/ws", privKey, pubkeyHex)
 	if err != nil {
 		return nil, err
 	}
+
+	registry := metrics.NewRegistry()
+	metricer := metrics.NewMetrics(registry)
+
 	txMsgChan := make(chan store.TxMessage, 100)
-	synchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan)
+	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
+	if err != nil {
+		return nil, err
+	}
+	celestiaSynchronizer, err := synchronizer.NewCelestiaSynchronizer(ctx, cfg, db, shutdown, logger, authToken, metricer)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Node{
-		wg:               sync.WaitGroup{},
-		done:             make(chan struct{}),
-		stopChan:         make(chan struct{}),
-		log:              logger,
-		db:               db,
-		privateKey:       privKey,
-		from:             from,
-		ctx:              ctx,
-		wsClient:         wsClient,
-		keyPairs:         keyPairs,
-		signRequestChan:  make(chan tdtypes.RPCRequest, 100),
-		signTimeout:      cfg.Node.SignTimeout,
-		waitScanInterval: cfg.Node.WaitScanInterval,
-		synchronizer:     synchronizer,
-		txMsgChan:        txMsgChan,
+		wg:                   sync.WaitGroup{},
+		done:                 make(chan struct{}),
+		stopChan:             make(chan struct{}),
+		log:                  logger,
+		db:                   db,
+		privateKey:           privKey,
+		from:                 from,
+		cfg:                  cfg,
+		ctx:                  ctx,
+		msmContract:          msmContract,
+		wsClient:             wsClient,
+		keyPairs:             keyPairs,
+		signRequestChan:      make(chan tdtypes.RPCRequest, 100),
+		babylonSynchronizer:  babylonSynchronizer,
+		celestiaSynchronizer: celestiaSynchronizer,
+		txMsgChan:            txMsgChan,
+		metricsRegistry:      registry,
 	}, nil
 }
 
@@ -105,8 +141,15 @@ func (n *Node) Start(ctx context.Context) error {
 	n.wg.Add(3)
 	go n.ProcessMessage()
 	go n.sign()
-	go n.synchronizer.Start()
 	go n.work()
+
+	go n.babylonSynchronizer.Start()
+	go n.celestiaSynchronizer.Start()
+
+	if err := n.startMetricsServer(); err != nil {
+		n.log.Error("failed to start metrics Server", "err", err)
+		return err
+	}
 	return nil
 }
 
@@ -114,7 +157,13 @@ func (n *Node) Stop(ctx context.Context) error {
 	n.cancel()
 	close(n.done)
 	n.wg.Wait()
-	n.synchronizer.Close()
+	n.babylonSynchronizer.Close()
+	n.celestiaSynchronizer.Close()
+	if n.metricsServer != nil {
+		if err := n.metricsServer.Close(); err != nil {
+			n.log.Error("failed to close metrics server", "err", err)
+		}
+	}
 	n.stopped.Store(true)
 	return nil
 }
@@ -128,27 +177,27 @@ func (n *Node) work() {
 	for {
 		select {
 		case txMsg := <-n.txMsgChan:
-			if err := n.synchronizer.ProcessNewFinalityProvider(txMsg); err != nil {
+			if err := n.babylonSynchronizer.ProcessNewFinalityProvider(txMsg); err != nil {
 				n.log.Error("failed to process NewFinalityProvider msg", "err", err)
 				continue
 			}
-			if err := n.synchronizer.ProcessCreateBTCDelegation(txMsg); err != nil {
+			if err := n.babylonSynchronizer.ProcessCreateBTCDelegation(txMsg); err != nil {
 				n.log.Error("failed to process CreateBTCDelegation msg", "err", err)
 				continue
 			}
-			if err := n.synchronizer.ProcessCommitPubRandList(txMsg); err != nil {
+			if err := n.babylonSynchronizer.ProcessCommitPubRandList(txMsg); err != nil {
 				n.log.Error("failed to process CommitPubRandList msg", "err", err)
 				continue
 			}
-			if err := n.synchronizer.ProcessBTCUndelegate(txMsg); err != nil {
+			if err := n.babylonSynchronizer.ProcessBTCUndelegate(txMsg); err != nil {
 				n.log.Error("failed to process BTCUndelegate msg", "err", err)
 				continue
 			}
-			if err := n.synchronizer.ProcessSelectiveSlashingEvidence(txMsg); err != nil {
+			if err := n.babylonSynchronizer.ProcessSelectiveSlashingEvidence(txMsg); err != nil {
 				n.log.Error("failed to process SelectiveSlashingEvidence msg", "err", err)
 				continue
 			}
-			if err := n.synchronizer.ProcessSubmitFinalitySignature(txMsg); err != nil {
+			if err := n.babylonSynchronizer.ProcessSubmitFinalitySignature(txMsg); err != nil {
 				n.log.Error("failed to process SubmitFinalitySignature msg", "err", err)
 				continue
 			}
@@ -194,154 +243,50 @@ func (n *Node) sign() {
 					}
 					continue
 				}
-				if requestBody.SignType == common3.BabylonSignType {
-					if len(requestBody.TxHash) == 0 || requestBody.BlockNumber.Uint64() <= 0 {
-						n.log.Error("tx hash and babylon block number must not be nil or negative")
-						RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "tx hash and l2 block number must not be nil or negative")
-						if err := n.wsClient.SendMsg(RpcResponse); err != nil {
-							n.log.Error("failed to send msg to manager", "err", err)
-						}
-						continue
+
+				if requestBody.StartTimestamp <= 0 || requestBody.EndTimestamp <= 0 {
+					n.log.Error("start timestamp and end timestamp must not be nil or negative")
+					RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "start timestamp and end timestamp must not be nil or negative")
+					if err := n.wsClient.SendMsg(RpcResponse); err != nil {
+						n.log.Error("failed to send msg to manager", "err", err)
 					}
-				} else if requestBody.SignType == common3.SymbioticSignType {
-					if requestBody.StateRoot == "" {
-						n.log.Error("state root must not be nil or negative")
-						RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "state root must not be nil")
-						if err := n.wsClient.SendMsg(RpcResponse); err != nil {
-							n.log.Error("failed to send msg to manager", "err", err)
-						}
-						continue
-					}
+					continue
 				}
 
 				nodeSignRequest.RequestBody = requestBody
-				if requestBody.SignType == common3.BabylonSignType {
-					go n.handleBabylonSign(req.ID.(tdtypes.JSONRPCStringID), nodeSignRequest)
-				} else if requestBody.SignType == common3.SymbioticSignType {
-					go n.handleSymbioticSign(req.ID.(tdtypes.JSONRPCStringID), nodeSignRequest)
-				}
+
+				go n.handleSign(req.ID.(tdtypes.JSONRPCStringID), nodeSignRequest)
 			}
 		}
 	}()
 }
 
-func (n *Node) handleBabylonSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
+func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
 	var err error
 	var bSign *sign.Signature
-
 	requestBody := req.RequestBody.(types.SignMsgRequest)
-	height, err := n.db.GetBabylonScannedHeight()
-	if err != nil {
-		n.log.Error("node failed to get scanned height", "err", err)
-		return err
-	}
-	if requestBody.BlockNumber.Uint64() <= height {
-		bSign, err = n.SignMessage(requestBody)
-		if err != nil {
-			n.log.Error("node failed to sign messages", "err", err)
-			return err
-		}
-		if bSign != nil {
-			signResponse := types.SignMsgResponse{
-				G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
-				Signature: bSign.Serialize(),
-				Vote:      uint8(common2.AgreeVote),
-			}
-			RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-			n.log.Info("node agree the msg, start to send response to finality manager")
+	ctx, cancel := context.WithTimeout(context.Background(), n.cfg.Node.SignTimeout)
+	ticker := time.NewTicker(n.cfg.Node.WaitScanInterval)
 
-			err = n.wsClient.SendMsg(RpcResponse)
-			if err != nil {
-				n.log.Error("failed to sendMsg to finality manager", "err", err)
-				return err
-			} else {
-				n.log.Info("send sign response to finality manager successfully ")
-				return nil
+	defer cancel()
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if !n.checkSyncStatus(requestBody.EndTimestamp) {
+				continue
 			}
-		} else {
-			signResponse := types.SignMsgResponse{
-				G2Point:         nil,
-				Signature:       nil,
-				NonSignerPubkey: n.keyPairs.GetPubKeyG1().Serialize(),
-				Vote:            uint8(common2.DisagreeVote),
-			}
-			RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-			n.log.Info("node disagree the msg, start to send response to finality manager")
 
-			err = n.wsClient.SendMsg(RpcResponse)
-			if err != nil {
-				n.log.Error("failed to sendMsg to finality manager", "err", err)
-				return err
-			} else {
-				n.log.Info("send sign response to finality manager successfully ")
-				return nil
-			}
-		}
-	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), n.signTimeout)
-		ticker := time.NewTicker(n.waitScanInterval)
-		defer cancel()
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				height, err := n.db.GetBabylonScannedHeight()
-				if err != nil {
-					n.log.Error("node failed to get babylon scanned height", "err", err)
-					return err
-				}
-				if requestBody.BlockNumber.Uint64() > height {
-					n.log.Warn(fmt.Sprintf("node received the task from the manager, the height is %v, but the synchronized height is %v", requestBody.BlockNumber.Uint64(), height))
-					continue
-				} else {
-					bSign, err = n.SignMessage(requestBody)
-					if bSign != nil {
-						signResponse := types.SignMsgResponse{
-							G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
-							Signature: bSign.Serialize(),
-							Vote:      uint8(common2.AgreeVote),
-						}
-						RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-						n.log.Info("node agree the msg, start to send response to finality manager")
-
-						err = n.wsClient.SendMsg(RpcResponse)
-						if err != nil {
-							n.log.Error("failed to sendMsg to finality manager", "err", err)
-							return err
-						} else {
-							n.log.Info("send sign response to finality manager successfully ")
-							return nil
-						}
-					} else {
-						signResponse := types.SignMsgResponse{
-							G2Point:         nil,
-							Signature:       nil,
-							NonSignerPubkey: n.keyPairs.GetPubKeyG1().Serialize(),
-							Vote:            uint8(common2.DisagreeVote),
-						}
-						RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-						n.log.Info("node disagree the msg, start to send response to finality manager")
-
-						err = n.wsClient.SendMsg(RpcResponse)
-						if err != nil {
-							n.log.Error("failed to sendMsg to finality manager", "err", err)
-							return err
-						} else {
-							n.log.Info("send sign response to finality manager successfully ")
-							return nil
-						}
-					}
-				}
-			case <-ctx.Done():
-				n.log.Warn("sign messages timeout !")
+			maxSignStateRoot, err := n.getMaxSignStateRoot(requestBody)
+			if maxSignStateRoot != requestBody.StateRoot {
 				signResponse := types.SignMsgResponse{
-					Signature:       nil,
 					G2Point:         nil,
+					Signature:       nil,
 					NonSignerPubkey: n.keyPairs.GetPubKeyG1().Serialize(),
-					Vote:            uint8(common2.DidNotVote),
+					Vote:            uint8(common2.DisagreeVote),
 				}
 				RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-				n.log.Info("node did not vote msg, start to send response to finality manager")
+				n.log.Info("node disagree the msg, start to send response to finality manager")
 
 				err = n.wsClient.SendMsg(RpcResponse)
 				if err != nil {
@@ -351,10 +296,48 @@ func (n *Node) handleBabylonSign(resId tdtypes.JSONRPCStringID, req types.NodeSi
 					n.log.Info("send sign response to finality manager successfully ")
 					return nil
 				}
+			} else {
+				bSign, err = n.SignMessage(requestBody)
+				if bSign != nil {
+					signResponse := types.SignMsgResponse{
+						G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
+						Signature: bSign.Serialize(),
+						Vote:      uint8(common2.AgreeVote),
+					}
+					RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
+					n.log.Info("node agree the msg, start to send response to finality manager")
+
+					err = n.wsClient.SendMsg(RpcResponse)
+					if err != nil {
+						n.log.Error("failed to sendMsg to finality manager", "err", err)
+						return err
+					} else {
+						n.log.Info("send sign response to finality manager successfully")
+						return nil
+					}
+				}
+			}
+		case <-ctx.Done():
+			n.log.Warn("sign messages timeout !")
+			signResponse := types.SignMsgResponse{
+				Signature:       nil,
+				G2Point:         nil,
+				NonSignerPubkey: n.keyPairs.GetPubKeyG1().Serialize(),
+				Vote:            uint8(common2.DidNotVote),
+			}
+			RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
+			n.log.Info("node did not vote msg, start to send response to finality manager")
+
+			err = n.wsClient.SendMsg(RpcResponse)
+			if err != nil {
+				n.log.Error("failed to sendMsg to finality manager", "err", err)
+				return err
+			} else {
+				n.log.Info("send sign response to finality manager successfully ")
+				return nil
 			}
 		}
 	}
-	return nil
 }
 
 func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
@@ -385,18 +368,158 @@ func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.Node
 
 func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
 	var bSign *sign.Signature
-	n.log.Info("msg hash", "data", crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
 	bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
 	n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 
 	return bSign, nil
 }
 
-func registerOperator(ctx context.Context, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, keyPairs *sign.KeyPair) (*types2.Transaction, error) {
-	ethCli, err := client.DialEthClientWithTimeout(ctx, cfg.EthRpc, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial eth client, err: %v", err)
+func (n *Node) checkSyncStatus(end uint64) bool {
+	babylonSynced := uint64(n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= end
+	celestiaSynced := uint64(n.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) >= end
+
+	if !babylonSynced {
+		n.log.Warn("Babylon sync not completed",
+			"required", end,
+			"current", n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
+		return false
 	}
+
+	if !celestiaSynced {
+		n.log.Warn("Celestia sync not completed",
+			"required", end,
+			"current", n.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix())
+		return false
+	}
+	return true
+}
+
+func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error) {
+	stateRootCountCache := make(map[string]int64)
+	symbioticFpSignCache := make(map[string]string)
+
+	n.log.Info("start counting fp signatures", "start", request.StartTimestamp, "end", request.EndTimestamp)
+
+	babylonFinalitySignatures, err := n.db.GetBabylonFinalitySignatureByTimestamp(request.StartTimestamp, request.EndTimestamp)
+	if err != nil {
+		return "", err
+	}
+	// celestia block may have an earlier timestamp than eth block
+	symbioticFinalitySignatures, err := n.db.GetSymbioticFpBlobsByTimestamp(request.StartTimestamp-uint64(time.Minute.Seconds()), request.EndTimestamp)
+	if err != nil {
+		return "", err
+	}
+
+	for _, bfs := range babylonFinalitySignatures {
+		if bfs.SubmitFinalitySignature.L2BlockNumber == request.L2BlockNumber {
+			stateRootCountCache[bfs.SubmitFinalitySignature.StateRoot]++
+		}
+	}
+
+	for _, sfs := range symbioticFinalitySignatures {
+		if sfs.SignRequests.L1BlockNumber == request.L1BlockNumber && sfs.SignRequests.L2BlockNumber == request.L2BlockNumber {
+			cOpts := &bind.CallOpts{
+				BlockNumber: big.NewInt(int64(request.L1BlockNumber)),
+				From:        n.from,
+			}
+			operator, err := n.msmContract.Operators(cOpts, common.HexToAddress(sfs.SignRequests.SignAddress))
+			if err != nil {
+				n.log.Error(fmt.Errorf("failed to get operator info at block: %v, err: %v", cOpts.BlockNumber, err).Error())
+				continue
+			}
+
+			if operator.OperatorName == "" {
+				n.log.Warn(fmt.Sprintf("node %s is not operator", sfs.SignRequests.SignAddress))
+				continue
+			} else {
+				if operator.Paused {
+					n.log.Warn("operator is paused", "address", sfs.SignRequests.SignAddress)
+					continue
+				}
+			}
+
+			if symbioticFpSignCache[sfs.SignRequests.SignAddress] == "" {
+				amount, err := n.getSymbioticOperatorStakeAmount(strings.ToLower(sfs.SignRequests.SignAddress))
+				if err != nil {
+					n.log.Error("failed to get operator stake amount", "address", sfs.SignRequests.SignAddress, "err", err)
+					continue
+				}
+				if amount.Cmp(big.NewInt(0)) > 0 {
+					stateRootCountCache[sfs.SignRequests.StateRoot]++
+					symbioticFpSignCache[sfs.SignRequests.SignAddress] = sfs.SignRequests.StateRoot
+				}
+			}
+
+		}
+	}
+
+	var maxSignStateRoot string
+	var maxStateRootCount int64
+
+	for k, v := range stateRootCountCache {
+		if v > maxStateRootCount || maxSignStateRoot == "" {
+			maxSignStateRoot = k
+			maxStateRootCount = v
+		}
+	}
+
+	return maxSignStateRoot, nil
+}
+
+func (n *Node) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {
+	query := fmt.Sprintf(`{"query":"query {\n  vaultUpdates(first: 1, where: {operator: \"%s\"}, orderBy: timestamp, orderDirection: desc) {\n    vaultTotalActiveStaked\n  }\n}"}`, operator)
+	jsonQuery := []byte(query)
+
+	req, err := http.NewRequest("POST", n.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonQuery))
+	if err != nil {
+		n.log.Error("Error creating HTTP request:", "err", err)
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, multipart/mixed")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		n.log.Error("Error sending HTTP request:", "err", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		n.log.Error("Error reading response body:", "err", err)
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		n.log.Error("Error parsing JSON response:", "err", err)
+		return nil, err
+	}
+
+	var totalStaked = big.NewInt(0)
+	if data, exists := result["data"]; exists {
+		if vaultUpdates, exists := data.(map[string]interface{})["vaultUpdates"]; exists {
+			if len(vaultUpdates.([]interface{})) > 0 {
+				vaultTotalActiveStaked := vaultUpdates.([]interface{})[0].(map[string]interface{})["vaultTotalActiveStaked"]
+				totalStaked, _ = new(big.Int).SetString(vaultTotalActiveStaked.(string), 10)
+				n.log.Info(fmt.Sprintf("operator %s vaultTotalActiveStaked: %s", operator, vaultTotalActiveStaked))
+			} else {
+				n.log.Warn(fmt.Sprintf("operator %s no vault updates found", operator))
+			}
+		} else {
+			n.log.Warn(fmt.Sprintf("operator %s no vaultUpdates field found in response data", operator))
+		}
+	} else {
+		n.log.Warn(fmt.Sprintf("operator %s no data field found in JSON response", operator))
+	}
+
+	return totalStaked, nil
+}
+
+func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, keyPairs *sign.KeyPair) (*types2.Transaction, error) {
 	frmContract, err := finality.NewFinalityRelayerManager(common.HexToAddress(cfg.Contracts.FrmContractAddress), ethCli)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new FinalityRelayerManager contract, err: %v", err)
@@ -496,4 +619,15 @@ func registerOperator(ctx context.Context, cfg *config.Config, priKey *ecdsa.Pri
 	}
 
 	return fRegOTx, nil
+}
+
+func (n *Node) startMetricsServer() error {
+	n.log.Info("starting metrics server", "addr", n.cfg.Metrics.ListenAddr, "port", n.cfg.Metrics.ListenPort)
+	metricsSrv, err := metrics.StartServer(n.metricsRegistry, n.cfg.Metrics.ListenAddr, n.cfg.Metrics.ListenPort)
+	if err != nil {
+		return fmt.Errorf("failed to start metrics server: %w", err)
+	}
+	n.log.Info("started metrics server", "addr", metricsSrv.Addr())
+	n.metricsServer = metricsSrv
+	return nil
 }
