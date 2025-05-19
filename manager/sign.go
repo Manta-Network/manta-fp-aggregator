@@ -40,7 +40,7 @@ func (m *Manager) sign(ctx types.Context, request interface{}, method types.Meth
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
-		cctx, cancel := context.WithTimeout(context.Background(), m.signTimeout)
+		cctx, cancel := context.WithTimeout(context.Background(), m.cfg.Manager.SignTimeout)
 		defer func() {
 			m.log.Info("exit signing process")
 			cancel()

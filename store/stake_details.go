@@ -3,9 +3,9 @@ package store
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"strings"
+
+	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -211,7 +211,7 @@ func (s *Storage) DeleteStakeDetailsByTimestamp(start uint64, end uint64) error 
 	return nil
 }
 
-func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]string, vs *types.VoteStateRoot, symbioticFpSignCache []string, start uint64, end uint64) error {
+func (s *Storage) SetBatchStakeDetails(batchID uint64, vs *types.VoteStateRoot, start uint64, end uint64) error {
 	var sD *StakeDetails
 	sD, err := s.GetStakeDetailsByTimestamp(start, end)
 	if err != nil {
@@ -229,7 +229,8 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 	sD.BabylonBlock = vs.BabylonHeight
 	sD.StateRoot = vs.StateRoot
 	sD.EthBlock = vs.L1BlockNumber
-	sD.SymbioticSignNode = symbioticFpSignCache
+	sD.SymbioticSignNode = vs.SymbioticFpSignList
+	fpSignCache := vs.BabylonFpSignCache
 
 	for fpPubkeyHex, sR := range fpSignCache {
 		for i, quorum := range sD.BitcoinQuorum {
@@ -243,10 +244,6 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, fpSignCache map[string]st
 	if err != nil {
 		return err
 	}
-	fmt.Println("==============")
-	fmt.Println(batchID)
-	fmt.Println(sD)
-	fmt.Println("=================")
 
 	return s.db.Put(getBatchStakeDetailsKey(batchID), bsD, nil)
 }
