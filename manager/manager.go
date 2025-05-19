@@ -487,7 +487,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		request.StateRoot = voteStateRoot.StateRoot
 	} else {
 		m.log.Warn("no fp signature, skip this state root", "state_root", op.StateRoot)
-		return err
+		return m.db.SetLatestProcessedStateRoot(*op)
 	}
 
 	res, err := m.SignMsgBatch(request)
