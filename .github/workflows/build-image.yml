@@ -22,7 +22,6 @@ jobs:
 
       - name: Set short sha
         id: get_short_sha
-        if: startsWith(github.ref, 'refs/heads/')
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set timestamp
