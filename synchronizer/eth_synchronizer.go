@@ -13,6 +13,7 @@ import (
 
 	"github.com/Manta-Network/manta-fp-aggregator/common/tasks"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
+	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer/node"
 	node2 "github.com/Manta-Network/manta-fp-aggregator/synchronizer/node"
@@ -23,7 +24,7 @@ type EthSynchronizer struct {
 	db                *store.Storage
 	headers           []types.Header
 	latestHeader      *types.Header
-	headerTraversal   *node.EthHeaderTraversal
+	HeaderTraversal   *node.EthHeaderTraversal
 	blockStep         uint64
 	contracts         []common.Address
 	startHeight       *big.Int
@@ -32,10 +33,11 @@ type EthSynchronizer struct {
 	resourceCancel    context.CancelFunc
 	contractEventChan chan store.ContractEvent
 	log               log.Logger
+	metrics           metrics.Metricer
 	tasks             tasks.Group
 }
 
-func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Context, logger log.Logger, shutdown context.CancelCauseFunc, contractEventChan chan store.ContractEvent) (*EthSynchronizer, error) {
+func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Context, logger log.Logger, shutdown context.CancelCauseFunc, contractEventChan chan store.ContractEvent, metricer metrics.Metricer) (*EthSynchronizer, error) {
 	client, err := node.DialEthClient(ctx, cfg.EthRpc)
 	if err != nil {
 		return nil, err
@@ -72,7 +74,7 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 
 	resCtx, resCancel := context.WithCancel(context.Background())
 	return &EthSynchronizer{
-		headerTraversal:   headerTraversal,
+		HeaderTraversal:   headerTraversal,
 		ethClient:         client,
 		latestHeader:      fromHeader,
 		db:                db,
@@ -82,6 +84,7 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		resourceCancel:    resCancel,
 		log:               logger,
 		contractEventChan: contractEventChan,
+		metrics:           metricer,
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in eth synchronizer: %w", err))
 		}},
@@ -92,10 +95,11 @@ func (syncer *EthSynchronizer) Start() error {
 	tickerSyncer := time.NewTicker(time.Second * 2)
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
+			done := syncer.metrics.RecordEthInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("eth: retrying previous batch")
 			} else {
-				newHeaders, err := syncer.headerTraversal.NextHeaders(syncer.blockStep)
+				newHeaders, err := syncer.HeaderTraversal.NextHeaders(syncer.blockStep)
 				if err != nil {
 					syncer.log.Error("eth: error querying for headers", "err", err)
 					continue
@@ -104,7 +108,7 @@ func (syncer *EthSynchronizer) Start() error {
 				} else {
 					syncer.headers = newHeaders
 				}
-				latestHeader := syncer.headerTraversal.LatestHeader()
+				latestHeader := syncer.HeaderTraversal.LatestHeader()
 				if latestHeader != nil {
 					syncer.log.Info("eth: Latest header", "latestHeader Number", latestHeader.Number)
 				}
@@ -113,6 +117,7 @@ func (syncer *EthSynchronizer) Start() error {
 			if err == nil {
 				syncer.headers = nil
 			}
+			done(err)
 		}
 		return nil
 	})
@@ -172,6 +177,7 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 		timestamp := headerMap[logEvent.BlockHash].Time
 		chainContractEvent[i] = store.ContractEventFromLog(&logs.Logs[i], timestamp)
 		syncer.contractEventChan <- chainContractEvent[i]
+		syncer.metrics.RecordEthBatchLog(chainContractEvent[i].ContractAddress.String())
 	}
 
 	if err := syncer.db.SetEthBlockHeaders(blockHeaders); err != nil {
@@ -183,6 +189,9 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 	if err := syncer.db.UpdateEthHeight(lastHeader.Number.Uint64()); err != nil {
 		return err
 	}
+
+	syncer.metrics.RecordLatestEthBlock(lastHeader.Number.Uint64())
+	syncer.metrics.RecordEthIndexedHeaders(len(blockHeaders))
 
 	return nil
 }

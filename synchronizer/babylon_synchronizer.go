@@ -14,6 +14,7 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/common/tasks"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
+	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer/node"
 
@@ -48,9 +49,10 @@ type BabylonSynchronizer struct {
 	tasks                tasks.Group
 	log                  log.Logger
 	txMsgChan            chan store.TxMessage
+	metrics              metrics.Metricer
 }
 
-func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, txMsgChan chan store.TxMessage) (*BabylonSynchronizer, error) {
+func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, txMsgChan chan store.TxMessage, metricer metrics.Metricer) (*BabylonSynchronizer, error) {
 
 	cli, err := client.NewClientFromNode(cfg.BabylonRpc)
 	if err != nil {
@@ -96,6 +98,7 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		opFinalityGadgetAddr: cfg.Contracts.OpFinalityGadgat,
 		log:                  logger,
 		txMsgChan:            txMsgChan,
+		metrics:              metricer,
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in babylon synchronizer: %w", err))
 		}},
@@ -106,6 +109,7 @@ func (syncer *BabylonSynchronizer) Start() error {
 	tickerSyncer := time.NewTicker(time.Second * 2)
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
+			done := syncer.metrics.RecordBabylonInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("babylon: retrying previous batch")
 			} else {
@@ -127,6 +131,7 @@ func (syncer *BabylonSynchronizer) Start() error {
 			if err == nil {
 				syncer.headers = nil
 			}
+			done(err)
 		}
 		return nil
 	})
@@ -215,6 +220,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 							}
 							txMessages = append(txMessages, txMessage)
 							syncer.txMsgChan <- txMessage
+							syncer.metrics.RecordBabylonBatchLog(sMsg.Contract)
 							syncer.log.Info("babylon: success to store submitFinalitySignature", "timestamp", sigParams.Timestamp)
 						}
 					}
@@ -236,6 +242,8 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 		return err
 	}
 
+	syncer.metrics.RecordLatestBabylonBlock(uint64(lastHeader.Height))
+	syncer.metrics.RecordBabylonIndexedHeaders(len(blockHeaders))
 	return nil
 }
 
