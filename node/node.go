@@ -28,6 +28,7 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/client"
 	"github.com/Manta-Network/manta-fp-aggregator/common/httputil"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
+	kmssigner "github.com/Manta-Network/manta-fp-aggregator/kms"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	common2 "github.com/Manta-Network/manta-fp-aggregator/node/common"
@@ -36,6 +37,7 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer"
 	wsclient "github.com/Manta-Network/manta-fp-aggregator/ws/client"
 
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/consensys/gnark-crypto/ecc/bn254"
 	"github.com/prometheus/client_golang/prometheus"
 	tdtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
@@ -72,11 +74,24 @@ type Node struct {
 	metricsServer   *httputil.HTTPServer
 }
 
-func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.PrivateKey, keyPairs *sign.KeyPair, shouldRegister bool, cfg *config.Config, logger log.Logger, shutdown context.CancelCauseFunc, authToken string) (*Node, error) {
-	from := crypto.PubkeyToAddress(privKey.PublicKey)
+func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.PrivateKey, keyPairs *sign.KeyPair, shouldRegister bool, cfg *config.Config, logger log.Logger, shutdown context.CancelCauseFunc, authToken string, kmsId string, kmsRegion string) (*Node, error) {
+	var kmsClient *kms.Client
+	var from common.Address
+	var pubkey *ecdsa.PublicKey
+	var err error
 
-	pubkey := crypto.CompressPubkey(&privKey.PublicKey)
-	pubkeyHex := hex.EncodeToString(pubkey)
+	if cfg.EnableKms {
+		kmsClient, err = kmssigner.NewKmsClientFromConfig(context.Background(), kmsRegion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the kms client: %w", err)
+		}
+		pubkey, err = kmssigner.GetPubKeyCtx(ctx, kmsClient, kmsId)
+	} else {
+		pubkey = &privKey.PublicKey
+	}
+
+	from = crypto.PubkeyToAddress(*pubkey)
+	pubkeyHex := hex.EncodeToString(crypto.CompressPubkey(pubkey))
 	logger.Info(fmt.Sprintf("pub key is (%s) \n", pubkeyHex))
 
 	ethCli, err := client.DialEthClientWithTimeout(ctx, cfg.EthRpc, false)
@@ -85,7 +100,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	}
 	if shouldRegister {
 		logger.Info("register to operator ...")
-		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, keyPairs)
+		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, keyPairs, kmsId, kmsRegion, kmsClient)
 		if err != nil {
 			logger.Error("failed to register operator", "err", err)
 			return nil, err
@@ -519,7 +534,7 @@ func (n *Node) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error
 	return totalStaked, nil
 }
 
-func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, keyPairs *sign.KeyPair) (*types2.Transaction, error) {
+func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, keyPairs *sign.KeyPair, kmsId string, kmsRegion string, kmsClient *kms.Client) (*types2.Transaction, error) {
 	frmContract, err := finality.NewFinalityRelayerManager(common.HexToAddress(cfg.Contracts.FrmContractAddress), ethCli)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new FinalityRelayerManager contract, err: %v", err)
@@ -544,11 +559,18 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
 		ethCli,
 	)
-
-	topts, err := client.NewTransactOpts(ctx, cfg.EthChainID, priKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to new transaction option, err: %v", err)
+	var topts *bind.TransactOpts
+	if cfg.EnableKms {
+		topts, err = kmssigner.NewAwsKmsTransactorWithChainIDCtx(ctx, kmsClient,
+			kmsId, big.NewInt(int64(cfg.EthChainID)))
+	} else {
+		topts, err = client.NewTransactOpts(cfg.EthChainID, priKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to new transaction option, err: %v", err)
+		}
 	}
+	topts.Context = ctx
+	topts.NoSend = true
 
 	nodeAddr := crypto.PubkeyToAddress(priKey.PublicKey)
 	latestBlock, err := ethCli.BlockNumber(ctx)

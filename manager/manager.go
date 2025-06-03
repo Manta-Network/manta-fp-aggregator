@@ -31,6 +31,7 @@ import (
 	common2 "github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/common/httputil"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
+	kmssigner "github.com/Manta-Network/manta-fp-aggregator/kms"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/router"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/metrics"
@@ -39,6 +40,7 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer"
 	"github.com/Manta-Network/manta-fp-aggregator/ws/server"
 
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	types2 "github.com/babylonlabs-io/babylon/x/btcstaking/types"
 	"github.com/ethereum-optimism/optimism/op-proposer/bindings"
 	"github.com/gin-gonic/gin"
@@ -94,9 +96,29 @@ type Manager struct {
 	metrics         metrics.Metricer
 	balanceMetricer io.Closer
 	metricsServer   *httputil.HTTPServer
+
+	kmsId     string
+	kmsRegion string
+	kmsClient *kms.Client
 }
 
-func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.IWebsocketManager, cfg *config.Config, shutdown context.CancelCauseFunc, logger log.Logger, priv *ecdsa.PrivateKey, authToken string) (*Manager, error) {
+func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.IWebsocketManager, cfg *config.Config, shutdown context.CancelCauseFunc, logger log.Logger, priv *ecdsa.PrivateKey, authToken string, kmsId string, kmsRegion string) (*Manager, error) {
+	var kmsClient *kms.Client
+	var from common.Address
+	var pubkey *ecdsa.PublicKey
+	var err error
+
+	if cfg.EnableKms {
+		kmsClient, err = kmssigner.NewKmsClientFromConfig(context.Background(), kmsRegion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the kms client: %w", err)
+		}
+		pubkey, err = kmssigner.GetPubKeyCtx(ctx, kmsClient, kmsId)
+	} else {
+		pubkey = &priv.PublicKey
+	}
+	from = crypto.PubkeyToAddress(*pubkey)
+
 	ethCli, err := client.DialEthClientWithTimeout(ctx, cfg.EthRpc, false)
 	if err != nil {
 		return nil, err
@@ -146,7 +168,7 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 
 	cOpts := &bind.CallOpts{
 		BlockNumber: big.NewInt(int64(latestBlock)),
-		From:        crypto.PubkeyToAddress(priv.PublicKey),
+		From:        from,
 	}
 
 	batchId, err := frmContract.ConfirmBatchId(cOpts)
@@ -193,7 +215,7 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		cfg:                      cfg,
 		ctx:                      ctx,
 		privateKey:               priv,
-		from:                     crypto.PubkeyToAddress(priv.PublicKey),
+		from:                     from,
 		tickerController:         true,
 		babylonSynchronizer:      babylonSynchronizer,
 		ethSynchronizer:          ethSynchronizer,
@@ -215,6 +237,9 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		outputSubmissionInterval: uint64(cfg.Manager.OutputSubmitInterval),
 		metricsRegistry:          registry,
 		metrics:                  metricer,
+		kmsId:                    kmsId,
+		kmsRegion:                kmsRegion,
+		kmsClient:                kmsClient,
 	}, nil
 }
 
@@ -524,11 +549,20 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		return err
 	}
 
-	opts, err := client.NewTransactOpts(context.Background(), m.ethChainID, m.privateKey)
-	if err != nil {
-		m.log.Error("failed to new transact opts", "err", err)
-		return err
+	var opts *bind.TransactOpts
+	if m.cfg.EnableKms {
+		opts, err = kmssigner.NewAwsKmsTransactorWithChainIDCtx(context.Background(), m.kmsClient,
+			m.kmsId, big.NewInt(int64(m.ethChainID)))
+	} else {
+		opts, err = client.NewTransactOpts(m.ethChainID, m.privateKey)
+		if err != nil {
+			m.log.Error("failed to new transact opts", "err", err)
+			return err
+		}
 	}
+	opts.Context = context.Background()
+	opts.NoSend = true
+
 	finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
 		StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
 		L2BlockNumber: big.NewInt(int64(voteStateRoot.L2BlockNumber)),

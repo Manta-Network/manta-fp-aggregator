@@ -23,6 +23,7 @@ type Config struct {
 	EthRpc                 string          `yaml:"eth_rpc"`
 	EthChainID             uint64          `yaml:"eth_chain_id"`
 	SymbioticStakeUrl      string          `yaml:"symbiotic_stake_url"`
+	EnableKms              bool            `yaml:"enable_kms"`
 }
 
 type NodeConfig struct {
