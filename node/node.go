@@ -6,7 +6,10 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/Manta-Network/manta-fp-aggregator/node/router"
+	"github.com/gin-gonic/gin"
 	"io"
 	"math/big"
 	"net/http"
@@ -55,8 +58,9 @@ type Node struct {
 	stopChan chan struct{}
 	stopped  atomic.Bool
 
-	wsClient *wsclient.WSClients
-	keyPairs *sign.KeyPair
+	wsClient   *wsclient.WSClients
+	httpServer *http.Server
+	keyPairs   *sign.KeyPair
 
 	signTimeout          time.Duration
 	waitScanInterval     time.Duration
@@ -138,6 +142,23 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 }
 
 func (n *Node) Start(ctx context.Context) error {
+	registry := router.NewRegistry()
+	r := gin.Default()
+	registry.Register(r)
+
+	var s *http.Server
+	s = &http.Server{
+		Addr:    n.cfg.Node.HttpAddr,
+		Handler: r,
+	}
+
+	go func() {
+		if err := s.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
+			n.log.Error("api server starts failed", "err", err)
+		}
+	}()
+	n.httpServer = s
+
 	n.wg.Add(3)
 	go n.ProcessMessage()
 	go n.sign()
