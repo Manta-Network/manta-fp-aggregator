@@ -184,18 +184,19 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		return nil, err
 	}
 
+	babylonSynchronizer := synchronizer.BabylonSynchronizer{StartTimestamp: uint64(time.Now().Unix())}
 	return &Manager{
-		done:             make(chan struct{}),
-		log:              logger,
-		db:               db,
-		wsServer:         wsServer,
-		NodeMembers:      nodeMemberS,
-		cfg:              cfg,
-		ctx:              ctx,
-		privateKey:       priv,
-		from:             crypto.PubkeyToAddress(priv.PublicKey),
-		tickerController: true,
-		//babylonSynchronizer:      babylonSynchronizer,
+		done:                     make(chan struct{}),
+		log:                      logger,
+		db:                       db,
+		wsServer:                 wsServer,
+		NodeMembers:              nodeMemberS,
+		cfg:                      cfg,
+		ctx:                      ctx,
+		privateKey:               priv,
+		from:                     crypto.PubkeyToAddress(priv.PublicKey),
+		tickerController:         true,
+		babylonSynchronizer:      &babylonSynchronizer,
 		ethSynchronizer:          ethSynchronizer,
 		ethEventProcess:          ethEventProcess,
 		celestiaSynchronizer:     celestiaSynchronizer,
