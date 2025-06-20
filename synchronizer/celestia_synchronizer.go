@@ -183,6 +183,9 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 				syncer.log.Info("celestia: success to store symbiotic fp blob data", "height", cHeader.Number, "timestamp", cHeader.Timestamp)
 			}
 		}
+		if err = syncer.db.SetStakeDetailsByTimestamp(uint64(headers[i].Time().Unix())); err != nil {
+			return err
+		}
 	}
 
 	if err := syncer.db.SetCelestiaBlockHeaders(blockHeaders); err != nil {

@@ -165,10 +165,10 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	metricer := metrics.NewMetrics(registry)
 
 	txMsgChan := make(chan store.TxMessage, cfg.Manager.MaxBabylonOperatorNum)
-	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
-	if err != nil {
-		return nil, err
-	}
+	//babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	contractEventChan := make(chan store.ContractEvent, 100)
 	ethSynchronizer, err := synchronizer.NewEthSynchronizer(cfg, db, ctx, logger, shutdown, contractEventChan, metricer)
@@ -185,17 +185,17 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	}
 
 	return &Manager{
-		done:                     make(chan struct{}),
-		log:                      logger,
-		db:                       db,
-		wsServer:                 wsServer,
-		NodeMembers:              nodeMemberS,
-		cfg:                      cfg,
-		ctx:                      ctx,
-		privateKey:               priv,
-		from:                     crypto.PubkeyToAddress(priv.PublicKey),
-		tickerController:         true,
-		babylonSynchronizer:      babylonSynchronizer,
+		done:             make(chan struct{}),
+		log:              logger,
+		db:               db,
+		wsServer:         wsServer,
+		NodeMembers:      nodeMemberS,
+		cfg:              cfg,
+		ctx:              ctx,
+		privateKey:       priv,
+		from:             crypto.PubkeyToAddress(priv.PublicKey),
+		tickerController: true,
+		//babylonSynchronizer:      babylonSynchronizer,
 		ethSynchronizer:          ethSynchronizer,
 		ethEventProcess:          ethEventProcess,
 		celestiaSynchronizer:     celestiaSynchronizer,
@@ -267,7 +267,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 
-	go m.babylonSynchronizer.Start()
+	//go m.babylonSynchronizer.Start()
 	go m.ethSynchronizer.Start()
 	go m.ethEventProcess.Start()
 	go m.celestiaSynchronizer.Start()
@@ -284,10 +284,10 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.log.Error("http server forced to shutdown", "err", err)
 		return err
 	}
-	if err := m.babylonSynchronizer.Close(); err != nil {
-		m.log.Error("babylon synchronizer server forced to shutdown", "err", err)
-		return err
-	}
+	//if err := m.babylonSynchronizer.Close(); err != nil {
+	//	m.log.Error("babylon synchronizer server forced to shutdown", "err", err)
+	//	return err
+	//}
 	if err := m.ethSynchronizer.Close(); err != nil {
 		m.log.Error("eth synchronizer server forced to shutdown", "err", err)
 		return err
@@ -439,15 +439,15 @@ func (m *Manager) work() {
 }
 
 func (m *Manager) checkSyncStatus(op *store.OutputProposed) bool {
-	babylonSynced := uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= op.Timestamp.Uint64()
+	//babylonSynced := uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= op.Timestamp.Uint64()
 	celestiaSynced := uint64(m.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) >= op.Timestamp.Uint64()
 
-	if !babylonSynced {
-		m.log.Warn("Babylon sync not completed",
-			"required", op.Timestamp.Uint64(),
-			"current", m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
-		return false
-	}
+	//if !babylonSynced {
+	//	m.log.Warn("Babylon sync not completed",
+	//		"required", op.Timestamp.Uint64(),
+	//		"current", m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
+	//	return false
+	//}
 
 	if !celestiaSynced {
 		m.log.Warn("Celestia sync not completed",
@@ -787,9 +787,10 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 	}
 
 	var voteStateRoot = types.VoteStateRoot{
-		StartTimestamp:         op.Timestamp.Uint64(),
-		EndTimestamp:           end,
-		BabylonHeight:          uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Height),
+		StartTimestamp: op.Timestamp.Uint64(),
+		EndTimestamp:   end,
+		BabylonHeight:  1, // default
+		//BabylonHeight:          uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Height),
 		L1BlockNumber:          op.L1BlockNumber,
 		L1BlockHash:            op.L1BlockHash.String(),
 		L2BlockNumber:          op.L2BlockNumber.Uint64(),
