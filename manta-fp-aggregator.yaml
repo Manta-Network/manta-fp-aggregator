@@ -17,6 +17,7 @@ node:
   level_db_folder: "node_storage1"
   key_path : "key.store"
   ws_addr: "tcp://127.0.0.1:8081"
+  http_addr: "127.0.0.1:34568"
   sign_timeout: "15s"
   wait_scan_interval: "2s"
 
