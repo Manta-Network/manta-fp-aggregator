@@ -114,6 +114,9 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 			return nil, fmt.Errorf("failed to create the kms client: %w", err)
 		}
 		pubkey, err = kmssigner.GetPubKeyCtx(ctx, kmsClient, kmsId)
+		if err != nil {
+			return nil, fmt.Errorf("failed to GetPubKey by kms: %w", err)
+		}
 	} else {
 		pubkey = &priv.PublicKey
 	}
