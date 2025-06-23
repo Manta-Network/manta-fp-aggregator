@@ -45,7 +45,7 @@ func DialEthClientWithTimeout(ctx context.Context, url string, disableHTTP2 bool
 	return ethclient.DialContext(ctxt, url)
 }
 
-func NewTransactOpts(ctx context.Context, chainId uint64, privateKey *ecdsa.PrivateKey) (*bind.TransactOpts, error) {
+func NewTransactOpts(chainId uint64, privateKey *ecdsa.PrivateKey) (*bind.TransactOpts, error) {
 	var opts *bind.TransactOpts
 	var err error
 
@@ -57,9 +57,6 @@ func NewTransactOpts(ctx context.Context, chainId uint64, privateKey *ecdsa.Priv
 	if err != nil {
 		return nil, fmt.Errorf("new keyed transactor fail, err: %v", err)
 	}
-
-	opts.Context = ctx
-	opts.NoSend = true
 
 	return opts, err
 }
