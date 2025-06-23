@@ -104,7 +104,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	}
 	if shouldRegister {
 		logger.Info("register to operator ...")
-		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, keyPairs, kmsId, kmsRegion, kmsClient)
+		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, from, keyPairs, kmsId, kmsClient)
 		if err != nil {
 			logger.Error("failed to register operator", "err", err)
 			return nil, err
@@ -117,7 +117,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 		return nil, err
 	}
 
-	wsClient, err := wsclient.NewWSClient(cfg.Node.WsAddr, "/ws", privKey, pubkeyHex)
+	wsClient, err := wsclient.NewWSClient(cfg.Node.WsAddr, "/ws", pubkeyHex)
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +555,7 @@ func (n *Node) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error
 	return totalStaked, nil
 }
 
-func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, keyPairs *sign.KeyPair, kmsId string, kmsRegion string, kmsClient *kms.Client) (*types2.Transaction, error) {
+func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, from common.Address, keyPairs *sign.KeyPair, kmsId string, kmsClient *kms.Client) (*types2.Transaction, error) {
 	frmContract, err := finality.NewFinalityRelayerManager(common.HexToAddress(cfg.Contracts.FrmContractAddress), ethCli)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new FinalityRelayerManager contract, err: %v", err)
@@ -593,7 +593,6 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 	topts.Context = ctx
 	topts.NoSend = true
 
-	nodeAddr := crypto.PubkeyToAddress(priKey.PublicKey)
 	latestBlock, err := ethCli.BlockNumber(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest block, err: %v", err)
@@ -601,10 +600,10 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 
 	cOpts := &bind.CallOpts{
 		BlockNumber: big.NewInt(int64(latestBlock)),
-		From:        nodeAddr,
+		From:        from,
 	}
 
-	msg, err := bar.GetPubkeyRegMessageHash(cOpts, nodeAddr)
+	msg, err := bar.GetPubkeyRegMessageHash(cOpts, from)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PubkeyRegistrationMessageHash, err: %v", err)
 	}
@@ -626,7 +625,7 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		},
 	}
 
-	regBlsTx, err := bar.RegisterBLSPublicKey(topts, nodeAddr, params, msg)
+	regBlsTx, err := bar.RegisterBLSPublicKey(topts, from, params, msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to craft RegisterBLSPublicKey transaction, err: %v", err)
 	}

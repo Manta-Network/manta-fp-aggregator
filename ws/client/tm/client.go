@@ -3,7 +3,6 @@ package tm
 import (
 	"context"
 	"crypto/ecdsa"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/metrics"
 
 	"github.com/gorilla/websocket"
@@ -249,14 +247,7 @@ func (c *WSClient) dial() error {
 	rHeader := http.Header{}
 	timeStr := strconv.FormatInt(time.Now().Unix(), 10)
 
-	digestBz := crypto.Keccak256Hash([]byte(timeStr)).Bytes()
-	sig, err := crypto.Sign(digestBz, c.PriKey)
-	if err != nil {
-		return err
-	}
-
 	rHeader.Set("pubKey", c.PubKey)
-	rHeader.Set("sig", hex.EncodeToString(sig))
 	rHeader.Set("time", timeStr)
 	conn, _, err := dialer.Dial(c.protocol+"://"+c.Address+c.Endpoint, rHeader) // nolint:bodyclose
 	if err != nil {

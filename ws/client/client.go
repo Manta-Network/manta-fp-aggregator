@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -23,12 +22,11 @@ type WSClients struct {
 	Cli *tm.WSClient
 }
 
-func NewWSClient(remoteAddr, endpoint string, privKey *ecdsa.PrivateKey, pubkey string) (*WSClients, error) {
+func NewWSClient(remoteAddr, endpoint string, pubkey string) (*WSClients, error) {
 	if client, err := tm.NewWS(remoteAddr, endpoint); err != nil {
 		return nil, err
 	} else {
 		client.PubKey = pubkey
-		client.PriKey = privKey
 
 		wsc := &WSClients{
 			Cli: client,
