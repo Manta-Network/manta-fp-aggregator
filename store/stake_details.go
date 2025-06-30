@@ -263,6 +263,30 @@ func (s *Storage) GetBatchStakeDetails(batchID uint64) (StakeDetails, error) {
 	return sD, nil
 }
 
+func (s *Storage) SetBatchStakeDetailsByApi(batchId uint64) error {
+	bSDB, err := s.db.Get(getBatchStakeDetailsKey(batchId), nil)
+	if err != nil {
+		return err
+	}
+
+	return s.db.Put(getStakeDetailsApiKey(batchId), bSDB, nil)
+}
+
+func (s *Storage) GetBatchStakeDetailsByApi(batchID uint64) (StakeDetails, error) {
+	bSDB, err := s.db.Get(getStakeDetailsApiKey(batchID), nil)
+	if err != nil {
+		return handleError(StakeDetails{}, err)
+	}
+
+	var sD StakeDetails
+	if err = json.Unmarshal(bSDB, &sD); err != nil {
+		return StakeDetails{}, err
+	}
+	sD.BatchID = batchID
+
+	return sD, nil
+}
+
 func (s *Storage) GetBatchTotalBabylonStakeAmount(batchID uint64) (uint64, error) {
 	bSDB, err := s.db.Get(getBatchStakeDetailsKey(batchID), nil)
 	if err != nil {
