@@ -631,6 +631,11 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		return err
 	}
 
+	if err = m.db.SetBatchStakeDetailsByApi(m.batchId); err != nil {
+		m.log.Error("failed to set batch stake details by api", "err", err)
+		return err
+	}
+
 	if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
 		m.log.Error("failed to set latest processed state root", "err", err)
 		return err
