@@ -627,6 +627,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, rTx, time.Second*10, m.log)
 	if err != nil {
 		m.log.Error("failed to get verify finality transaction receipt", "err", err)
+		m.metrics.RecordGetReceiptError(rTx.Hash().String())
 		return err
 	}
 
