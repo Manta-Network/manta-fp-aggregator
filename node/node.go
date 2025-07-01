@@ -638,7 +638,7 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		return nil, fmt.Errorf("failed to send RegisterBLSPublicKey transaction, err: %v", err)
 	}
 
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx.Hash())
+	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx, time.Second*10)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, fRegBlsTx.Hash().String())
 	}
@@ -655,7 +655,7 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 	if err != nil {
 		return nil, fmt.Errorf("failed to send RegisterOperator transaction, err: %v", err)
 	}
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegOTx.Hash())
+	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegOTx, time.Second*10)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get RegisterOperator transaction receipt, err: %v, tx_hash: %v", err, fRegOTx.Hash().String())
 	}
