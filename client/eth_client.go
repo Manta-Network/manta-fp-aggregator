@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum"
 	"math/big"
 	"net/http"
 	"strings"
@@ -82,11 +83,14 @@ func GetTransactionReceipt(
 			return receipt, nil
 
 		case err != nil:
-			log.Error("get receipt retrieve failed", "hash", txHash,
-				"err", err)
-
+			if errors.Is(err, ethereum.NotFound) {
+				log.Warn("transaction not yet mined", "hash", txHash)
+			} else {
+				log.Error("get receipt retrieve failed", "hash", txHash,
+					"err", err)
+				return nil, err
+			}
 		default:
-			log.Error("transaction not yet mined", "hash", txHash)
 		}
 
 		select {

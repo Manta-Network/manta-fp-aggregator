@@ -26,6 +26,7 @@ type Metricer interface {
 	RecordBatchId(id uint64)
 	RecordWindowPeriodStartTime(timestamp uint64)
 	RecordWindowPeriodEndTime(timestamp uint64)
+	RecordGetReceiptError(txHash string)
 }
 
 type Metrics struct {
@@ -49,6 +50,7 @@ type Metrics struct {
 	babylonBatchFailures      prometheus.Counter
 	celestiaBatchFailures     prometheus.Counter
 	ethBatchFailures          prometheus.Counter
+	getReceiptFailures        *prometheus.CounterVec
 
 	batchId               prometheus.Gauge
 	windowPeriodStartTime prometheus.Gauge
@@ -164,6 +166,13 @@ func NewMetrics(registry *prometheus.Registry) Metricer {
 			Name:      "window_period_end_time",
 			Help:      "the window period end time of verifying state root",
 		}),
+		getReceiptFailures: factory.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "get_receipt_failures",
+			Help:      "get the receipt error for verifying the transaction",
+		}, []string{
+			"tx_hash",
+		}),
 	}
 }
 
@@ -249,4 +258,8 @@ func (m *Metrics) RecordWindowPeriodStartTime(timestamp uint64) {
 
 func (m *Metrics) RecordWindowPeriodEndTime(timestamp uint64) {
 	m.windowPeriodEndTime.Set(float64(timestamp))
+}
+
+func (m *Metrics) RecordGetReceiptError(txHash string) {
+	m.getReceiptFailures.WithLabelValues(txHash).Inc()
 }
