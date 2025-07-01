@@ -546,6 +546,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		m.log.Error("failed to get latest confirm batch id", "err", err)
 		return err
 	}
+	m.log.Info("success to get latest confirm batchId")
 
 	err = m.db.SetBatchStakeDetails(m.batchId, voteStateRoot, m.windowPeriodStartTime, op.Timestamp.Uint64())
 	if err != nil {
@@ -557,6 +558,10 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 	if m.cfg.EnableKms {
 		opts, err = kmssigner.NewAwsKmsTransactorWithChainIDCtx(context.Background(), m.kmsClient,
 			m.kmsId, big.NewInt(int64(m.ethChainID)))
+		if err != nil {
+			m.log.Error("failed to new transact opts by kms", "err", err)
+			return err
+		}
 	} else {
 		opts, err = client.NewTransactOpts(m.ethChainID, m.privateKey)
 		if err != nil {
