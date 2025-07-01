@@ -612,22 +612,27 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
+	fmt.Println("11111111")
 	rTx, err := m.rawFrmContract.RawTransact(opts, tx.Data())
 	if err != nil {
 		m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
+	fmt.Println("22222222")
+
 	err = m.ethClient.SendTransaction(context.Background(), tx)
 	if err != nil {
 		m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
+	fmt.Println("33333333")
 
 	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, rTx, time.Second*10)
 	if err != nil {
 		m.log.Error("failed to get verify finality transaction receipt", "err", err)
 		return err
 	}
+	fmt.Println("44444444")
 
 	m.log.Info("success to send verify finality signature transaction", "tx_hash", receipt.TxHash.String())
 
@@ -635,16 +640,19 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		m.log.Error("failed to delete old stake details data", "err", err)
 		return err
 	}
+	fmt.Println("55555555")
 
 	if err = m.db.SetBatchStakeDetailsByApi(m.batchId); err != nil {
 		m.log.Error("failed to set batch stake details by api", "err", err)
 		return err
 	}
+	fmt.Println("66666666")
 
 	if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
 		m.log.Error("failed to set latest processed state root", "err", err)
 		return err
 	}
+	fmt.Println("77777777")
 
 	m.metrics.RecordBatchId(m.batchId)
 
