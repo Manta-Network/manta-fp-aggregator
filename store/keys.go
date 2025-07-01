@@ -30,7 +30,6 @@ var (
 	CelestiaBlockHeaderKeyPrefix        = []byte{0x23}
 	StakeDetailsByTimestampKeyPrefix    = []byte{0x24}
 	FinalityOutputProposedKeyPrefix     = []byte{0x25}
-	BatchStakeDetailsByApiKeyPrefix     = []byte{0x26}
 )
 
 func getBabylonBlockHeaderKey(number int64) []byte {
@@ -117,12 +116,6 @@ func getBatchStakeDetailsKey(batchId uint64) []byte {
 	numberBz := make([]byte, 8)
 	binary.BigEndian.PutUint64(numberBz, batchId)
 	return append(BatchStakeDetailsKeyPrefix, numberBz...)
-}
-
-func getStakeDetailsApiKey(batchId uint64) []byte {
-	numberBz := make([]byte, 8)
-	binary.BigEndian.PutUint64(numberBz, batchId)
-	return append(BatchStakeDetailsByApiKeyPrefix, numberBz...)
 }
 
 func getSymbioticFpBlobKey(timestamp uint64) []byte {

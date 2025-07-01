@@ -16,6 +16,11 @@ const (
 	UndelegateType = iota
 )
 
+const (
+	NotConfirmedOnChain = 0
+	Confirmed           = iota
+)
+
 type Staker struct {
 	StakingAmount uint64 `json:"stakingAmount"`
 	Address       string `json:"address"`
@@ -34,6 +39,7 @@ type StakeDetails struct {
 	BabylonBlock      uint64       `json:"babylonBlock"`
 	StateRoot         string       `json:"stateRoot"`
 	EthBlock          uint64       `json:"ethBlock"`
+	Status            uint64       `json:"status"`
 	BitcoinQuorum     []QuorumNode `json:"bitcoinQuorum"`
 	SymbioticSignNode []string     `json:"symbioticSignNode"`
 }
@@ -230,6 +236,7 @@ func (s *Storage) SetBatchStakeDetails(batchID uint64, vs *types.VoteStateRoot, 
 	sD.StateRoot = vs.StateRoot
 	sD.EthBlock = vs.L1BlockNumber
 	sD.SymbioticSignNode = vs.SymbioticFpSignList
+	sD.Status = NotConfirmedOnChain
 	fpSignCache := vs.BabylonFpSignCache
 
 	for fpPubkeyHex, sR := range fpSignCache {
@@ -263,28 +270,25 @@ func (s *Storage) GetBatchStakeDetails(batchID uint64) (StakeDetails, error) {
 	return sD, nil
 }
 
-func (s *Storage) SetBatchStakeDetailsByApi(batchId uint64) error {
+func (s *Storage) ChangeBatchStakeDetailsStatus(batchId uint64, status uint64) error {
 	bSDB, err := s.db.Get(getBatchStakeDetailsKey(batchId), nil)
 	if err != nil {
 		return err
 	}
 
-	return s.db.Put(getStakeDetailsApiKey(batchId), bSDB, nil)
-}
-
-func (s *Storage) GetBatchStakeDetailsByApi(batchID uint64) (StakeDetails, error) {
-	bSDB, err := s.db.Get(getStakeDetailsApiKey(batchID), nil)
-	if err != nil {
-		return handleError(StakeDetails{}, err)
-	}
-
 	var sD StakeDetails
 	if err = json.Unmarshal(bSDB, &sD); err != nil {
-		return StakeDetails{}, err
+		return err
 	}
-	sD.BatchID = batchID
 
-	return sD, nil
+	sD.Status = status
+
+	bsD, err := json.Marshal(sD)
+	if err != nil {
+		return err
+	}
+
+	return s.db.Put(getBatchStakeDetailsKey(batchId), bsD, nil)
 }
 
 func (s *Storage) GetBatchTotalBabylonStakeAmount(batchID uint64) (uint64, error) {
