@@ -64,7 +64,10 @@ func GetTransactionReceipt(
 	client *ethclient.Client,
 	tx *types.Transaction,
 	queryInterval time.Duration,
+	log log.Logger,
 ) (*types.Receipt, error) {
+	ctxw, cancel := context.WithTimeout(ctx, time.Minute*2)
+	defer cancel()
 
 	queryTicker := time.NewTicker(queryInterval)
 	defer queryTicker.Stop()
@@ -72,23 +75,23 @@ func GetTransactionReceipt(
 	txHash := tx.Hash()
 
 	for {
-		receipt, err := client.TransactionReceipt(ctx, txHash)
+		receipt, err := client.TransactionReceipt(ctxw, txHash)
 		switch {
 		case receipt != nil:
 			log.Info("success to get tx receipt", "tx", receipt.TxHash.String())
 			return receipt, nil
 
 		case err != nil:
-			log.Trace("get receipt retrieve failed", "hash", txHash,
+			log.Error("get receipt retrieve failed", "hash", txHash,
 				"err", err)
 
 		default:
-			log.Trace("transaction not yet mined", "hash", txHash)
+			log.Error("transaction not yet mined", "hash", txHash)
 		}
 
 		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		case <-ctxw.Done():
+			return nil, ctxw.Err()
 		case <-queryTicker.C:
 		}
 	}

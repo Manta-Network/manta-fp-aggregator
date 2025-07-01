@@ -55,7 +55,7 @@ func (registry *Registry) StakerDetailsHandler() gin.HandlerFunc {
 		var bTotalAmount uint64
 		var err error
 
-		result, err = registry.db.GetBatchStakeDetailsByApi(request.BatchId)
+		result, err = registry.db.GetBatchStakeDetails(request.BatchId)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "failed to get staker details")
 			log.Error("failed to get staker details", "error", err)
