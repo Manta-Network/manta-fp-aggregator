@@ -617,19 +617,14 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
-	err = m.ethClient.SendTransaction(context.Background(), tx)
+
+	err = m.ethClient.SendTransaction(context.Background(), rTx)
 	if err != nil {
 		m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
 
-	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, rTx, time.Second*10)
-	if err != nil {
-		m.log.Error("failed to get verify finality transaction receipt", "err", err)
-		return err
-	}
-
-	m.log.Info("success to send verify finality signature transaction", "tx_hash", receipt.TxHash.String())
+	m.log.Info("success to send verify finality signature transaction", "tx_hash", rTx.Hash().String())
 
 	if err = m.db.DeleteStakeDetailsByTimestamp(m.babylonSynchronizer.StartTimestamp, m.windowPeriodStartTime); err != nil {
 		m.log.Error("failed to delete old stake details data", "err", err)
