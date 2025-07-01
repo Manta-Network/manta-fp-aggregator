@@ -624,15 +624,21 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		return err
 	}
 
-	m.log.Info("success to send verify finality signature transaction", "tx_hash", rTx.Hash().String())
+	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, rTx, time.Second*10, m.log)
+	if err != nil {
+		m.log.Error("failed to get verify finality transaction receipt", "err", err)
+		return err
+	}
+
+	m.log.Info("success to send verify finality signature transaction", "tx_hash", receipt.TxHash.String())
 
 	if err = m.db.DeleteStakeDetailsByTimestamp(m.babylonSynchronizer.StartTimestamp, m.windowPeriodStartTime); err != nil {
 		m.log.Error("failed to delete old stake details data", "err", err)
 		return err
 	}
 
-	if err = m.db.SetBatchStakeDetailsByApi(m.batchId); err != nil {
-		m.log.Error("failed to set batch stake details by api", "err", err)
+	if err = m.db.ChangeBatchStakeDetailsStatus(m.batchId, store.Confirmed); err != nil {
+		m.log.Error("failed to change batch stake details status", "err", err)
 		return err
 	}
 

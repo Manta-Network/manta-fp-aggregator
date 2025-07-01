@@ -104,7 +104,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	}
 	if shouldRegister {
 		logger.Info("register to operator ...")
-		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, from, keyPairs, kmsId, kmsClient)
+		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, from, keyPairs, kmsId, kmsClient, logger)
 		if err != nil {
 			logger.Error("failed to register operator", "err", err)
 			return nil, err
@@ -555,7 +555,7 @@ func (n *Node) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error
 	return totalStaked, nil
 }
 
-func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, from common.Address, keyPairs *sign.KeyPair, kmsId string, kmsClient *kms.Client) (*types2.Transaction, error) {
+func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, from common.Address, keyPairs *sign.KeyPair, kmsId string, kmsClient *kms.Client, logger log.Logger) (*types2.Transaction, error) {
 	frmContract, err := finality.NewFinalityRelayerManager(common.HexToAddress(cfg.Contracts.FrmContractAddress), ethCli)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new FinalityRelayerManager contract, err: %v", err)
@@ -638,7 +638,7 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		return nil, fmt.Errorf("failed to send RegisterBLSPublicKey transaction, err: %v", err)
 	}
 
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx, time.Second*10)
+	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx, time.Second*10, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, fRegBlsTx.Hash().String())
 	}
@@ -655,7 +655,7 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 	if err != nil {
 		return nil, fmt.Errorf("failed to send RegisterOperator transaction, err: %v", err)
 	}
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegOTx, time.Second*10)
+	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegOTx, time.Second*10, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get RegisterOperator transaction receipt, err: %v, tx_hash: %v", err, fRegOTx.Hash().String())
 	}
