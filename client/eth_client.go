@@ -11,9 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
@@ -61,21 +59,37 @@ func NewTransactOpts(chainId uint64, privateKey *ecdsa.PrivateKey) (*bind.Transa
 	return opts, err
 }
 
-func GetTransactionReceipt(ctx context.Context, client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
-	var receipt *types.Receipt
-	var err error
+func GetTransactionReceipt(
+	ctx context.Context,
+	client *ethclient.Client,
+	tx *types.Transaction,
+	queryInterval time.Duration,
+) (*types.Receipt, error) {
 
-	ticker := time.NewTicker(10 * time.Second)
+	queryTicker := time.NewTicker(queryInterval)
+	defer queryTicker.Stop()
+
+	txHash := tx.Hash()
+
 	for {
-		<-ticker.C
-		receipt, err = client.TransactionReceipt(ctx, txHash)
-		if err != nil && !errors.Is(err, ethereum.NotFound) {
-			return nil, err
+		receipt, err := client.TransactionReceipt(ctx, txHash)
+		switch {
+		case receipt != nil:
+			log.Info("success to get tx receipt", "tx", receipt.TxHash.String())
+			return receipt, nil
+
+		case err != nil:
+			log.Trace("get receipt retrieve failed", "hash", txHash,
+				"err", err)
+
+		default:
+			log.Trace("transaction not yet mined", "hash", txHash)
 		}
 
-		if errors.Is(err, ethereum.NotFound) {
-			continue
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-queryTicker.C:
 		}
-		return receipt, nil
 	}
 }
