@@ -42,5 +42,5 @@ babylon_rpc: ""
 eth_rpc: "http://127.0.0.1:8545"
 eth_chain_id: 31337
 symbiotic_stake_url: ""
-min_manta_stake_amount: 400000000000000000000000
+min_manta_stake_amount: "400000000000000000000000"
 enable_kms: false
