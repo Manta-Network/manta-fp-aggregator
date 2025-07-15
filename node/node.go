@@ -480,7 +480,7 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 					n.log.Error("failed to get operator stake amount", "address", sfs.SignRequests.SignAddress, "err", err)
 					continue
 				}
-				if amount.Cmp(big.NewInt(0)) > 0 {
+				if amount.Cmp(big.NewInt(n.cfg.MinMantaStakeAmount)) > 0 {
 					stateRootCountCache[sfs.SignRequests.StateRoot]++
 					symbioticFpSignCache[sfs.SignRequests.SignAddress] = sfs.SignRequests.StateRoot
 				}
