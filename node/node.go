@@ -481,7 +481,7 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 					continue
 				}
 				minMantaStakeAmount, _ := new(big.Int).SetString(n.cfg.MinMantaStakeAmount, 10)
-				if amount.Cmp(minMantaStakeAmount) > 0 {
+				if amount.Cmp(minMantaStakeAmount) >= 0 {
 					stateRootCountCache[sfs.SignRequests.StateRoot]++
 					symbioticFpSignCache[sfs.SignRequests.SignAddress] = sfs.SignRequests.StateRoot
 				}
