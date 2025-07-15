@@ -23,7 +23,7 @@ type Config struct {
 	EthRpc                 string          `yaml:"eth_rpc"`
 	EthChainID             uint64          `yaml:"eth_chain_id"`
 	SymbioticStakeUrl      string          `yaml:"symbiotic_stake_url"`
-	MinMantaStakeAmount    int64           `yaml:"min_manta_stake_amount"`
+	MinMantaStakeAmount    string          `yaml:"min_manta_stake_amount"`
 	EnableKms              bool            `yaml:"enable_kms"`
 }
 
