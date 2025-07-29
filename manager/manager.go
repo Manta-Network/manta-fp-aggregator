@@ -310,6 +310,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 func (m *Manager) Stop(ctx context.Context) error {
 	close(m.done)
+	m.wg.Wait()
 	if err := m.httpServer.Shutdown(ctx); err != nil {
 		m.log.Error("http server forced to shutdown", "err", err)
 		return err
