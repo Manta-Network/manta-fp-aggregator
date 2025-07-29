@@ -500,7 +500,7 @@ func (m *Manager) resetState(op *store.OutputProposed) {
 }
 
 func (m *Manager) processStateRoot(op *store.OutputProposed) error {
-	voteStateRoot, err := m.getMaxSignStateRoot(op.Timestamp.Uint64())
+	voteStateRoot, err := m.getMaxSignStateRoot(op)
 	m.log.Info("success to count fp signatures", "result", voteStateRoot)
 	if err != nil {
 		m.log.Error("failed to get max sign state root", "err", err)
@@ -757,7 +757,7 @@ func ExistsIgnoreCase(slice []string, target string) bool {
 	return false
 }
 
-func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) {
+func (m *Manager) getMaxSignStateRoot(unprocessedOp *store.OutputProposed) (*types.VoteStateRoot, error) {
 	stateRootCountCache := make(map[string]int64)
 	babylonFpSignCache := make(map[string]string)
 	symbioticFpSignCache := make(map[string]string)
@@ -768,20 +768,20 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 	if err != nil {
 		return nil, err
 	}
-	m.log.Info("start counting fp signatures", "start", op.Timestamp.Uint64(), "end", end)
+	m.log.Info("start counting fp signatures", "start", op.Timestamp.Uint64(), "end", unprocessedOp.Timestamp)
 
-	babylonFinalitySignatures, err := m.db.GetBabylonFinalitySignatureByTimestamp(op.Timestamp.Uint64(), end)
+	babylonFinalitySignatures, err := m.db.GetBabylonFinalitySignatureByTimestamp(op.Timestamp.Uint64(), unprocessedOp.Timestamp.Uint64())
 	if err != nil {
 		return nil, err
 	}
 	// celestia block may have an earlier timestamp than eth block
-	symbioticFinalitySignatures, err := m.db.GetSymbioticFpBlobsByTimestamp(op.Timestamp.Uint64()-uint64(time.Minute.Seconds()), end)
+	symbioticFinalitySignatures, err := m.db.GetSymbioticFpBlobsByTimestamp(op.Timestamp.Uint64()-uint64(time.Minute.Seconds()), unprocessedOp.Timestamp.Uint64())
 	if err != nil {
 		return nil, err
 	}
 
 	for _, bfs := range babylonFinalitySignatures {
-		if bfs.SubmitFinalitySignature.L2BlockNumber == op.L2BlockNumber.Uint64() {
+		if bfs.SubmitFinalitySignature.L1BlockNumber == unprocessedOp.L1BlockNumber && bfs.SubmitFinalitySignature.L2BlockNumber == unprocessedOp.L2BlockNumber.Uint64() {
 			stateRootCountCache[bfs.SubmitFinalitySignature.StateRoot]++
 			if babylonFpSignCache[bfs.SubmitFinalitySignature.FpPubkeyHex] == "" {
 				babylonFpSignCache[bfs.SubmitFinalitySignature.FpPubkeyHex] = bfs.SubmitFinalitySignature.StateRoot
@@ -790,7 +790,7 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 	}
 
 	for _, sfs := range symbioticFinalitySignatures {
-		if sfs.SignRequests.L1BlockNumber == op.L1BlockNumber && sfs.SignRequests.L2BlockNumber == op.L2BlockNumber.Uint64() {
+		if sfs.SignRequests.L1BlockNumber == unprocessedOp.L1BlockNumber && sfs.SignRequests.L2BlockNumber == unprocessedOp.L2BlockNumber.Uint64() {
 			cOpts := &bind.CallOpts{
 				BlockNumber: big.NewInt(int64(op.L1BlockNumber)),
 				From:        m.from,
@@ -839,7 +839,7 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 
 	var voteStateRoot = types.VoteStateRoot{
 		StartTimestamp: op.Timestamp.Uint64(),
-		EndTimestamp:   end,
+		EndTimestamp:   unprocessedOp.Timestamp.Uint64(),
 		BabylonHeight:  1, // default
 		//BabylonHeight:          uint64(m.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Height),
 		L1BlockNumber:          op.L1BlockNumber,
