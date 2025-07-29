@@ -81,7 +81,8 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 		logger.Info("no celestia block indexed state")
 	}
 
-	headerTraversal := node.NewCelestiaHeaderTraversal(cli, fromHeader, big.NewInt(0))
+	// The probability of 1 blocks being reorganized is very low for celestia
+	headerTraversal := node.NewCelestiaHeaderTraversal(cli, fromHeader, big.NewInt(1))
 
 	resCtx, resCancel := context.WithCancel(context.Background())
 	return &CelestiaSynchronizer{

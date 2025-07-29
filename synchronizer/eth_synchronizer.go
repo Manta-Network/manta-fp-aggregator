@@ -66,7 +66,8 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		logger.Info("no ethereum block indexed state")
 	}
 
-	headerTraversal := node.NewEthHeaderTraversal(client, fromHeader, big.NewInt(0))
+	// The probability of 12 blocks being reorganized is very low for ethereum
+	headerTraversal := node.NewEthHeaderTraversal(client, fromHeader, big.NewInt(12))
 
 	var contracts []common.Address
 	contracts = append(contracts, common.HexToAddress(cfg.Contracts.FrmContractAddress))
