@@ -52,14 +52,16 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		logger.Info("eth: sync detected last indexed block", "number", dbLatestHeader)
 		header, err := client.BlockHeaderByNumber(big.NewInt(int64(dbLatestHeader)))
 		if err != nil {
-			logger.Error("failed to get eth block header", "height", dbLatestHeader)
+			logger.Error("failed to get eth block header by latest db header", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch eth starting block header by latest db header: %w", err)
 		}
 		fromHeader = header
 	} else if cfg.EthStartingHeight > 0 {
 		logger.Info("eth: no sync indexed state starting from supplied ethereum height", "height", cfg.EthStartingHeight)
 		header, err := client.BlockHeaderByNumber(big.NewInt(cfg.EthStartingHeight))
 		if err != nil {
-			return nil, fmt.Errorf("could not fetch eth starting block header: %w", err)
+			logger.Error("failed to get eth block header by cfg height", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch eth starting block header by cfg height: %w", err)
 		}
 		fromHeader = header
 	} else {
