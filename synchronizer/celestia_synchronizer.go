@@ -153,7 +153,7 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 		}
 		cHeader := store.CelestiaBlockHeader{
 			Hash:       headers[i].Hash(),
-			ParentHash: headers[i].LastResultsHash.Bytes(),
+			ParentHash: headers[i].LastHeader(),
 			Number:     headers[i].Height(),
 			Timestamp:  headers[i].Time().Unix(),
 		}

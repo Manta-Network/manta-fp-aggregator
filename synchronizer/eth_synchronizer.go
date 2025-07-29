@@ -160,7 +160,7 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 			continue
 		}
 		eHeader := store.EthBlockHeader{
-			Hash:       headers[i].TxHash,
+			Hash:       headers[i].Hash(),
 			ParentHash: headers[i].ParentHash,
 			Number:     headers[i].Number.Int64(),
 			Timestamp:  int64(headers[i].Time),
