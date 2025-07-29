@@ -69,14 +69,16 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		height := int64(dbLatestHeader)
 		block, err := cli.Block(ctx, &height)
 		if err != nil {
-			logger.Error("failed to get babylon block", "height", dbLatestHeader)
+			logger.Error("failed to get babylon block by latest db header", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch babylon starting block header by latest db header: %w", err)
 		}
 		fromHeader = &block.Block.Header
 	} else if cfg.BabylonStartingHeight > 0 {
 		logger.Info("babylon: no sync indexed state starting from supplied babylon height", "height", cfg.BabylonStartingHeight)
 		block, err := cli.Block(ctx, &cfg.BabylonStartingHeight)
 		if err != nil {
-			return nil, fmt.Errorf("could not fetch babylon starting block header: %w", err)
+			logger.Error("failed to get babylon block by cfg height", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch babylon starting block header by cfg height: %w", err)
 		}
 		fromHeader = &block.Block.Header
 	} else {

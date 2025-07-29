@@ -67,14 +67,16 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 		logger.Info("celestia: sync detected last indexed block", "number", dbLatestHeader)
 		header, err := cli.Header.GetByHeight(ctx, dbLatestHeader)
 		if err != nil {
-			logger.Error("failed to get celestia header", "height", dbLatestHeader)
+			logger.Error("failed to get celestia header by latest db header", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch celestia starting block header by latest db header: %w", err)
 		}
 		fromHeader = header
 	} else if cfg.CelestiaStartingHeight > 0 {
 		logger.Info("celestia: no sync indexed state starting from supplied celestia height", "height", cfg.CelestiaStartingHeight)
 		header, err := cli.Header.GetByHeight(ctx, uint64(cfg.CelestiaStartingHeight))
 		if err != nil {
-			return nil, fmt.Errorf("could not fetch celestia starting block header: %w", err)
+			logger.Error("failed to get celestia header by cfg height", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch celestia starting block header by cfg height: %w", err)
 		}
 		fromHeader = header
 	} else {
