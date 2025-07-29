@@ -193,6 +193,10 @@ func (n *Node) Stop(ctx context.Context) error {
 	n.wg.Wait()
 	//n.babylonSynchronizer.Close()
 	n.celestiaSynchronizer.Close()
+	if err := n.db.Close(); err != nil {
+		n.log.Error("failed to close db server", "err", err)
+		return err
+	}
 	if n.metricsServer != nil {
 		if err := n.metricsServer.Close(); err != nil {
 			n.log.Error("failed to close metrics server", "err", err)

@@ -196,6 +196,8 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 
 	return nil
 }
-func (syncer *EthSynchronizer) Close() error {
-	return nil
+
+func (syncer *EthSynchronizer) Close() {
+	syncer.ethClient.Close()
+	syncer.resourceCancel()
 }

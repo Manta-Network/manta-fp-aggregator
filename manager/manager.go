@@ -317,12 +317,10 @@ func (m *Manager) Stop(ctx context.Context) error {
 	//	m.log.Error("babylon synchronizer server forced to shutdown", "err", err)
 	//	return err
 	//}
-	if err := m.ethSynchronizer.Close(); err != nil {
-		m.log.Error("eth synchronizer server forced to shutdown", "err", err)
-		return err
-	}
-	if err := m.celestiaSynchronizer.Close(); err != nil {
-		m.log.Error("celestia synchronizer server forced to shutdown", "err", err)
+	m.ethSynchronizer.Close()
+	m.celestiaSynchronizer.Close()
+	if err := m.db.Close(); err != nil {
+		m.log.Error("failed to close db server", "err", err)
 		return err
 	}
 	if m.metricsServer != nil {

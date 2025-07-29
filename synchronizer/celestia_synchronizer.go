@@ -202,6 +202,7 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 	return nil
 }
 
-func (syncer *CelestiaSynchronizer) Close() error {
-	return nil
+func (syncer *CelestiaSynchronizer) Close() {
+	syncer.client.Close()
+	syncer.resourceCancel()
 }
