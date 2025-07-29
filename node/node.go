@@ -54,10 +54,9 @@ type Node struct {
 	privateKey *ecdsa.PrivateKey
 	from       common.Address
 
-	cfg      *config.Config
-	ctx      context.Context
-	stopChan chan struct{}
-	stopped  atomic.Bool
+	cfg     *config.Config
+	ctx     context.Context
+	stopped atomic.Bool
 
 	wsClient   *wsclient.WSClients
 	httpServer *http.Server
@@ -137,7 +136,6 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	return &Node{
 		wg:              sync.WaitGroup{},
 		done:            make(chan struct{}),
-		stopChan:        make(chan struct{}),
 		log:             logger,
 		db:              db,
 		privateKey:      privKey,
@@ -256,7 +254,7 @@ func (n *Node) sign() {
 		}()
 		for {
 			select {
-			case <-n.stopChan:
+			case <-n.done:
 				return
 			case req := <-n.signRequestChan:
 				var resId = req.ID.(tdtypes.JSONRPCStringID).String()
