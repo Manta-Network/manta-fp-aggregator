@@ -56,7 +56,6 @@ type Node struct {
 
 	cfg      *config.Config
 	ctx      context.Context
-	cancel   context.CancelFunc
 	stopChan chan struct{}
 	stopped  atomic.Bool
 
@@ -190,7 +189,6 @@ func (n *Node) Start(ctx context.Context) error {
 }
 
 func (n *Node) Stop(ctx context.Context) error {
-	n.cancel()
 	close(n.done)
 	n.wg.Wait()
 	//n.babylonSynchronizer.Close()
