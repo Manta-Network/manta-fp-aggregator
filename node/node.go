@@ -237,6 +237,8 @@ func (n *Node) work() {
 				n.log.Error("failed to process SubmitFinalitySignature msg", "err", err)
 				continue
 			}
+		case <-n.done:
+			return
 		}
 	}
 }
