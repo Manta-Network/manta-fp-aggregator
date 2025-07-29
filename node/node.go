@@ -314,7 +314,10 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 			}
 
 			maxSignStateRoot, err := n.getMaxSignStateRoot(requestBody)
-			if maxSignStateRoot != requestBody.StateRoot {
+			if err != nil {
+				n.log.Error("failed to get max sign state root", "err", err)
+			}
+			if maxSignStateRoot != requestBody.StateRoot || err != nil {
 				signResponse := types.SignMsgResponse{
 					G2Point:         nil,
 					Signature:       nil,
