@@ -643,11 +643,6 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		return err
 	}
 
-	if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
-		m.log.Error("failed to set latest processed state root", "err", err)
-		return err
-	}
-
 	m.metrics.RecordBatchId(m.batchId)
 
 	return nil
