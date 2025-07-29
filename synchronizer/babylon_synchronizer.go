@@ -43,9 +43,6 @@ type BabylonSynchronizer struct {
 	opFinalityGadgetAddr string
 	blockStep            uint64
 	StartTimestamp       uint64
-	confirmationDepth    *big.Int
-	resourceCtx          context.Context
-	resourceCancel       context.CancelFunc
 	tasks                tasks.Group
 	log                  log.Logger
 	txMsgChan            chan store.TxMessage
@@ -87,7 +84,6 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 
 	headerTraversal := node.NewBabylonHeaderTraversal(cli, fromHeader, big.NewInt(0))
 
-	resCtx, resCancel := context.WithCancel(context.Background())
 	return &BabylonSynchronizer{
 		client:               cli,
 		blockStep:            cfg.BabylonBlockStep,
@@ -95,8 +91,6 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		LatestHeader:         fromHeader,
 		StartTimestamp:       uint64(fromHeader.Time.Unix()),
 		db:                   db,
-		resourceCtx:          resCtx,
-		resourceCancel:       resCancel,
 		opFinalityGadgetAddr: cfg.Contracts.OpFinalityGadgat,
 		log:                  logger,
 		txMsgChan:            txMsgChan,
@@ -167,7 +161,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 		}
 		blockHeaders = append(blockHeaders, bHeader)
 
-		block, err := syncer.client.Block(syncer.resourceCtx, &headers[i].Height)
+		block, err := syncer.client.Block(context.Background(), &headers[i].Height)
 		if err != nil {
 			syncer.log.Error("babylon: failed to get block", "err", err, "height", headers[i].Height)
 			return err
@@ -251,5 +245,10 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 }
 
 func (syncer *BabylonSynchronizer) Close() error {
+	if err := syncer.client.Stop(); err != nil {
+		syncer.log.Error("failed to stop babylon client", "err", err)
+		return err
+	}
+
 	return nil
 }

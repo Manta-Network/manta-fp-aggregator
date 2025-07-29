@@ -63,8 +63,6 @@ type Node struct {
 	httpServer *http.Server
 	keyPairs   *sign.KeyPair
 
-	signTimeout          time.Duration
-	waitScanInterval     time.Duration
 	signRequestChan      chan tdtypes.RPCRequest
 	babylonSynchronizer  *synchronizer.BabylonSynchronizer
 	celestiaSynchronizer *synchronizer.CelestiaSynchronizer
@@ -73,7 +71,6 @@ type Node struct {
 	msmContract *sfp.MantaStakingMiddleware
 
 	metricsRegistry *prometheus.Registry
-	metrics         metrics.Metricer
 	metricsServer   *httputil.HTTPServer
 }
 
@@ -339,7 +336,7 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 					return nil
 				}
 			} else {
-				bSign, err = n.SignMessage(requestBody)
+				bSign = n.SignMessage(requestBody)
 				if bSign != nil {
 					signResponse := types.SignMsgResponse{
 						G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
@@ -382,38 +379,12 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 	}
 }
 
-func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
-	var err error
-	var bSign *sign.Signature
-	requestBody := req.RequestBody.(types.SignMsgRequest)
-	bSign, err = n.SignMessage(requestBody)
-	if bSign != nil {
-		signResponse := types.SignMsgResponse{
-			G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
-			Signature: bSign.Serialize(),
-			Vote:      uint8(common2.AgreeVote),
-		}
-		RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-		n.log.Info("node agree the msg, start to send response to finality manager")
-
-		err = n.wsClient.SendMsg(RpcResponse)
-		if err != nil {
-			n.log.Error("failed to sendMsg to finality manager", "err", err)
-			return err
-		} else {
-			n.log.Info("send sign response to finality manager successfully ")
-			return nil
-		}
-	}
-	return nil
-}
-
-func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
+func (n *Node) SignMessage(requestBody types.SignMsgRequest) *sign.Signature {
 	var bSign *sign.Signature
 	bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
 	n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 
-	return bSign, nil
+	return bSign
 }
 
 func (n *Node) checkSyncStatus(end uint64) bool {

@@ -23,20 +23,16 @@ import (
 )
 
 type CelestiaSynchronizer struct {
-	client            *client.Client
-	db                *store.Storage
-	headers           []*header.ExtendedHeader
-	LatestHeader      *header.ExtendedHeader
-	HeaderTraversal   *node.CelestiaHeaderTraversal
-	blockStep         uint64
-	startHeight       *big.Int
-	confirmationDepth *big.Int
-	resourceCtx       context.Context
-	resourceCancel    context.CancelFunc
-	tasks             tasks.Group
-	log               log.Logger
-	namespace         share.Namespace
-	metrics           metrics.Metricer
+	client          *client.Client
+	db              *store.Storage
+	headers         []*header.ExtendedHeader
+	LatestHeader    *header.ExtendedHeader
+	HeaderTraversal *node.CelestiaHeaderTraversal
+	blockStep       uint64
+	tasks           tasks.Group
+	log             log.Logger
+	namespace       share.Namespace
+	metrics         metrics.Metricer
 }
 
 func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, authToken string, metricer metrics.Metricer) (*CelestiaSynchronizer, error) {
@@ -86,15 +82,12 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 	// The probability of 1 blocks being reorganized is very low for celestia
 	headerTraversal := node.NewCelestiaHeaderTraversal(cli, fromHeader, big.NewInt(1))
 
-	resCtx, resCancel := context.WithCancel(context.Background())
 	return &CelestiaSynchronizer{
 		client:          cli,
 		blockStep:       cfg.CelestiaBlockStep,
 		HeaderTraversal: headerTraversal,
 		LatestHeader:    fromHeader,
 		db:              db,
-		resourceCtx:     resCtx,
-		resourceCancel:  resCancel,
 		log:             logger,
 		namespace:       namespace,
 		metrics:         metricer,
@@ -207,5 +200,4 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 
 func (syncer *CelestiaSynchronizer) Close() {
 	syncer.client.Close()
-	syncer.resourceCancel()
 }

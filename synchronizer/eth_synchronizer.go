@@ -27,10 +27,6 @@ type EthSynchronizer struct {
 	HeaderTraversal   *node.EthHeaderTraversal
 	blockStep         uint64
 	contracts         []common.Address
-	startHeight       *big.Int
-	confirmationDepth *big.Int
-	resourceCtx       context.Context
-	resourceCancel    context.CancelFunc
 	contractEventChan chan store.ContractEvent
 	log               log.Logger
 	metrics           metrics.Metricer
@@ -75,7 +71,6 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 	contracts = append(contracts, common.HexToAddress(cfg.Contracts.FrmContractAddress))
 	contracts = append(contracts, common.HexToAddress(cfg.Contracts.L2ooContractAddress))
 
-	resCtx, resCancel := context.WithCancel(context.Background())
 	return &EthSynchronizer{
 		HeaderTraversal:   headerTraversal,
 		ethClient:         client,
@@ -83,8 +78,6 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		db:                db,
 		blockStep:         cfg.EthBlockStep,
 		contracts:         contracts,
-		resourceCtx:       resCtx,
-		resourceCancel:    resCancel,
 		log:               logger,
 		contractEventChan: contractEventChan,
 		metrics:           metricer,
@@ -202,5 +195,4 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 
 func (syncer *EthSynchronizer) Close() {
 	syncer.ethClient.Close()
-	syncer.resourceCancel()
 }
