@@ -662,7 +662,7 @@ func (m *Manager) SignMsgBatch(request types.SignMsgRequest) (*types.SignResult,
 		return nil, err
 	}
 	availableNodes := m.availableNodes(activeMember.Members)
-	if len(availableNodes) == 0 {
+	if len(availableNodes) < len(activeMember.Members) {
 		m.log.Warn("not enough sign node", "availableNodes", availableNodes)
 		return nil, errNotEnoughSignNode
 	}

@@ -30,6 +30,7 @@ func (m *Manager) sign(ctx types.Context, request interface{}, method types.Meth
 	responseNodes := make(map[string]struct{})
 	var err error
 	var respNumber int
+	var agreeNumber int
 	var validSignResult types.SignResult
 	var g2Point *sign.G2Point
 	var g2Points []*sign.G2Point
@@ -96,6 +97,7 @@ func (m *Manager) sign(ctx types.Context, request interface{}, method types.Meth
 						}
 						g2Points = append(g2Points, dG2Point)
 						g1Points = append(g1Points, dSign)
+						agreeNumber++
 						return
 					}
 				}()
@@ -115,7 +117,7 @@ func (m *Manager) sign(ctx types.Context, request interface{}, method types.Meth
 	m.sendToNodes(ctx, request, method, errSendChan)
 	wg.Wait()
 
-	if respNumber < len(ctx.AvailableNodes())*2/3 {
+	if agreeNumber < len(ctx.AvailableNodes())*2/3 {
 		return validSignResult, errNotEnoughVoteNode
 	}
 	aSign, aG2Point := aggregateSignaturesAndG2Point(g1Points, g2Points)
