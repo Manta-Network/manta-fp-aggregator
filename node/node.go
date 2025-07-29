@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Manta-Network/manta-fp-aggregator/node/router"
-	"github.com/gin-gonic/gin"
 	"io"
 	"math/big"
 	"net/http"
@@ -29,12 +27,14 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
+	common3 "github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/common/httputil"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
 	kmssigner "github.com/Manta-Network/manta-fp-aggregator/kms"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	common2 "github.com/Manta-Network/manta-fp-aggregator/node/common"
+	"github.com/Manta-Network/manta-fp-aggregator/node/router"
 	"github.com/Manta-Network/manta-fp-aggregator/sign"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer"
@@ -42,6 +42,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	tdtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
@@ -54,18 +55,14 @@ type Node struct {
 	privateKey *ecdsa.PrivateKey
 	from       common.Address
 
-	cfg      *config.Config
-	ctx      context.Context
-	cancel   context.CancelFunc
-	stopChan chan struct{}
-	stopped  atomic.Bool
+	cfg     *config.Config
+	ctx     context.Context
+	stopped atomic.Bool
 
 	wsClient   *wsclient.WSClients
 	httpServer *http.Server
 	keyPairs   *sign.KeyPair
 
-	signTimeout          time.Duration
-	waitScanInterval     time.Duration
 	signRequestChan      chan tdtypes.RPCRequest
 	babylonSynchronizer  *synchronizer.BabylonSynchronizer
 	celestiaSynchronizer *synchronizer.CelestiaSynchronizer
@@ -74,7 +71,6 @@ type Node struct {
 	msmContract *sfp.MantaStakingMiddleware
 
 	metricsRegistry *prometheus.Registry
-	metrics         metrics.Metricer
 	metricsServer   *httputil.HTTPServer
 }
 
@@ -138,7 +134,6 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	return &Node{
 		wg:              sync.WaitGroup{},
 		done:            make(chan struct{}),
-		stopChan:        make(chan struct{}),
 		log:             logger,
 		db:              db,
 		privateKey:      privKey,
@@ -190,11 +185,14 @@ func (n *Node) Start(ctx context.Context) error {
 }
 
 func (n *Node) Stop(ctx context.Context) error {
-	n.cancel()
 	close(n.done)
 	n.wg.Wait()
 	//n.babylonSynchronizer.Close()
 	n.celestiaSynchronizer.Close()
+	if err := n.db.Close(); err != nil {
+		n.log.Error("failed to close db server", "err", err)
+		return err
+	}
 	if n.metricsServer != nil {
 		if err := n.metricsServer.Close(); err != nil {
 			n.log.Error("failed to close metrics server", "err", err)
@@ -237,6 +235,8 @@ func (n *Node) work() {
 				n.log.Error("failed to process SubmitFinalitySignature msg", "err", err)
 				continue
 			}
+		case <-n.done:
+			return
 		}
 	}
 }
@@ -252,7 +252,7 @@ func (n *Node) sign() {
 		}()
 		for {
 			select {
-			case <-n.stopChan:
+			case <-n.done:
 				return
 			case req := <-n.signRequestChan:
 				var resId = req.ID.(tdtypes.JSONRPCStringID).String()
@@ -314,7 +314,10 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 			}
 
 			maxSignStateRoot, err := n.getMaxSignStateRoot(requestBody)
-			if maxSignStateRoot != requestBody.StateRoot {
+			if err != nil {
+				n.log.Error("failed to get max sign state root", "err", err)
+			}
+			if maxSignStateRoot != requestBody.StateRoot || err != nil {
 				signResponse := types.SignMsgResponse{
 					G2Point:         nil,
 					Signature:       nil,
@@ -333,7 +336,7 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 					return nil
 				}
 			} else {
-				bSign, err = n.SignMessage(requestBody)
+				bSign = n.SignMessage(requestBody)
 				if bSign != nil {
 					signResponse := types.SignMsgResponse{
 						G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
@@ -376,38 +379,12 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 	}
 }
 
-func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
-	var err error
-	var bSign *sign.Signature
-	requestBody := req.RequestBody.(types.SignMsgRequest)
-	bSign, err = n.SignMessage(requestBody)
-	if bSign != nil {
-		signResponse := types.SignMsgResponse{
-			G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
-			Signature: bSign.Serialize(),
-			Vote:      uint8(common2.AgreeVote),
-		}
-		RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-		n.log.Info("node agree the msg, start to send response to finality manager")
-
-		err = n.wsClient.SendMsg(RpcResponse)
-		if err != nil {
-			n.log.Error("failed to sendMsg to finality manager", "err", err)
-			return err
-		} else {
-			n.log.Info("send sign response to finality manager successfully ")
-			return nil
-		}
-	}
-	return nil
-}
-
-func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
+func (n *Node) SignMessage(requestBody types.SignMsgRequest) *sign.Signature {
 	var bSign *sign.Signature
 	bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
 	n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 
-	return bSign, nil
+	return bSign
 }
 
 func (n *Node) checkSyncStatus(end uint64) bool {
@@ -504,54 +481,79 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 }
 
 func (n *Node) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {
-	query := fmt.Sprintf(`{"query":"query {\n  vaultUpdates(first: 1, where: {operator: \"%s\"}, orderBy: timestamp, orderDirection: desc) {\n    vaultTotalActiveStaked\n  }\n}"}`, operator)
-	jsonQuery := []byte(query)
+	query := fmt.Sprintf(`
+		query {
+			vaultUpdates(
+				first: 1, 
+				where: {operator: "%s"}, 
+				orderBy: timestamp, 
+				orderDirection: desc
+			) {
+				vaultTotalActiveStaked
+			}
+		}`, operator)
 
-	req, err := http.NewRequest("POST", n.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonQuery))
+	requestBody := common3.SymbioticStakeRequest{Query: query}
+	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
-		n.log.Error("Error creating HTTP request:", "err", err)
+		n.log.Error("Error marshaling JSON request", "err", err)
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", n.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		n.log.Error("Error creating HTTP request", "err", err)
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, multipart/mixed")
+	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	hClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := hClient.Do(req)
 	if err != nil {
-		n.log.Error("Error sending HTTP request:", "err", err)
+		n.log.Error("Error sending HTTP request", "err", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		n.log.Error("Error reading response body:", "err", err)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		n.log.Error("GraphQL server returned error status",
+			"status", resp.Status,
+			"response", string(body))
+		return nil, fmt.Errorf("graphql server error: %s", resp.Status)
+	}
+
+	var response common3.SymbioticStakeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		n.log.Error("Error decoding JSON response", "err", err)
 		return nil, err
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		n.log.Error("Error parsing JSON response:", "err", err)
-		return nil, err
+	if len(response.Errors) > 0 {
+		errMsg := response.Errors[0].Message
+		n.log.Error("GraphQL query returned errors", "errors", response.Errors)
+		return nil, fmt.Errorf("graphql error: %s", errMsg)
 	}
 
-	var totalStaked = big.NewInt(0)
-	if data, exists := result["data"]; exists {
-		if vaultUpdates, exists := data.(map[string]interface{})["vaultUpdates"]; exists {
-			if len(vaultUpdates.([]interface{})) > 0 {
-				vaultTotalActiveStaked := vaultUpdates.([]interface{})[0].(map[string]interface{})["vaultTotalActiveStaked"]
-				totalStaked, _ = new(big.Int).SetString(vaultTotalActiveStaked.(string), 10)
-				n.log.Info(fmt.Sprintf("operator %s vaultTotalActiveStaked: %s", operator, vaultTotalActiveStaked))
-			} else {
-				n.log.Warn(fmt.Sprintf("operator %s no vault updates found", operator))
-			}
-		} else {
-			n.log.Warn(fmt.Sprintf("operator %s no vaultUpdates field found in response data", operator))
-		}
-	} else {
-		n.log.Warn(fmt.Sprintf("operator %s no data field found in JSON response", operator))
+	if len(response.Data.VaultUpdates) == 0 {
+		n.log.Warn("No vault updates found for operator", "operator", operator)
+		return big.NewInt(0), nil
 	}
+
+	stakeStr := response.Data.VaultUpdates[0].VaultTotalActiveStaked
+	totalStaked, ok := new(big.Int).SetString(stakeStr, 10)
+	if !ok {
+		n.log.Error("Invalid stake amount format",
+			"value", stakeStr,
+			"operator", operator)
+		return nil, fmt.Errorf("invalid stake amount: %s", stakeStr)
+	}
+
+	n.log.Info("Retrieved operator stake amount",
+		"operator", operator,
+		"amount", totalStaked.String())
 
 	return totalStaked, nil
 }
