@@ -109,6 +109,7 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 
 func (syncer *BabylonSynchronizer) Start() error {
 	tickerSyncer := time.NewTicker(time.Second * 2)
+	defer tickerSyncer.Stop()
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
 			done := syncer.metrics.RecordBabylonInterval()

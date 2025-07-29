@@ -106,6 +106,7 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 
 func (syncer *CelestiaSynchronizer) Start() error {
 	tickerSyncer := time.NewTicker(time.Second * 2)
+	defer tickerSyncer.Stop()
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
 			done := syncer.metrics.RecordCelestiaInterval()

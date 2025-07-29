@@ -266,6 +266,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.httpServer = s
 
 	waitNodeTicker := time.NewTicker(5 * time.Second)
+	defer waitNodeTicker.Stop()
 	var done bool
 	for !done {
 		select {
@@ -377,6 +378,7 @@ func (m *Manager) getWindowPeriodStartTime() error {
 
 func (m *Manager) work() {
 	fpTicker := time.NewTicker(m.cfg.Manager.FPTimeout)
+	defer fpTicker.Stop()
 	defer m.wg.Done()
 
 	for {

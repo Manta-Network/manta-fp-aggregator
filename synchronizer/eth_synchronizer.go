@@ -96,6 +96,7 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 
 func (syncer *EthSynchronizer) Start() error {
 	tickerSyncer := time.NewTicker(time.Second * 2)
+	defer tickerSyncer.Stop()
 	syncer.tasks.Go(func() error {
 		for range tickerSyncer.C {
 			done := syncer.metrics.RecordEthInterval()
