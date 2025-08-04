@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -24,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 
-	"github.com/Manta-Network/manta-fp-aggregator/bindings/bls"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
 	sfp "github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
@@ -69,20 +67,15 @@ type Manager struct {
 	ctx     context.Context
 	stopped atomic.Bool
 
-	ethChainID      uint64
-	privateKey      *ecdsa.PrivateKey
-	from            common.Address
-	ethClient       *ethclient.Client
-	frmContract     *finality.FinalityRelayerManager
-	frmContractAddr common.Address
-	rawFrmContract  *bind.BoundContract
-	barContract     *bls.BLSApkRegistry
-	barContractAddr common.Address
-	rawBarContract  *bind.BoundContract
-	msmContract     *sfp.MantaStakingMiddleware
-	l2oo            *bindings.L2OutputOracle
-	batchId         uint64
-	isFirstBatch    bool
+	ethChainID   uint64
+	privateKey   *ecdsa.PrivateKey
+	from         common.Address
+	ethClient    *ethclient.Client
+	frmContract  *finality.FinalityRelayerManager
+	msmContract  *sfp.MantaStakingMiddleware
+	l2oo         *bindings.L2OutputOracle
+	batchId      uint64
+	isFirstBatch bool
 
 	babylonSynchronizer  *synchronizer.BabylonSynchronizer
 	ethSynchronizer      *synchronizer.EthSynchronizer
@@ -130,30 +123,6 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	if err != nil {
 		return nil, err
 	}
-	fParsed, err := abi.JSON(strings.NewReader(
-		finality.FinalityRelayerManagerABI,
-	))
-	if err != nil {
-		return nil, err
-	}
-	rawfrmContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.FrmContractAddress), fParsed, ethCli, ethCli,
-		ethCli,
-	)
-
-	barContract, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
-	if err != nil {
-		return nil, err
-	}
-	bParsed, err := bls.BLSApkRegistryMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
-	rawBarContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
-		ethCli,
-	)
-
 	msmContract, err := sfp.NewMantaStakingMiddleware(common.HexToAddress(cfg.Contracts.MsmContractAddress), ethCli)
 	if err != nil {
 		return nil, err
@@ -230,11 +199,6 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		ethChainID:               cfg.EthChainID,
 		ethClient:                ethCli,
 		frmContract:              frmContract,
-		frmContractAddr:          common.HexToAddress(cfg.Contracts.FrmContractAddress),
-		rawFrmContract:           rawfrmContract,
-		barContract:              barContract,
-		barContractAddr:          common.HexToAddress(cfg.Contracts.BarContactAddress),
-		rawBarContract:           rawBarContract,
 		msmContract:              msmContract,
 		batchId:                  batchId.Uint64(),
 		l2oo:                     l2ooContract,
@@ -571,7 +535,6 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		}
 	}
 	opts.Context = context.Background()
-	opts.NoSend = true
 
 	finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
 		StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
@@ -610,25 +573,14 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 
 	tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(100000))
 	if err != nil {
-		m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
-		return err
-	}
-	rTx, err := m.rawFrmContract.RawTransact(opts, tx.Data())
-	if err != nil {
-		m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
-		return err
-	}
-
-	err = m.ethClient.SendTransaction(context.Background(), rTx)
-	if err != nil {
 		m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
 
-	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, rTx, time.Second*10, m.log)
+	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, tx, time.Second*10, m.log)
 	if err != nil {
 		m.log.Error("failed to get verify finality transaction receipt", "err", err)
-		m.metrics.RecordGetReceiptError(rTx.Hash().String())
+		m.metrics.RecordGetReceiptError(tx.Hash().String())
 		return err
 	}
 

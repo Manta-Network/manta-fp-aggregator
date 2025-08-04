@@ -563,26 +563,10 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 	if err != nil {
 		return nil, fmt.Errorf("failed to new FinalityRelayerManager contract, err: %v", err)
 	}
-	bar, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
+	barContract, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new BLSApkRegistry contract, err: %v", err)
 	}
-	fParsed, err := finality.FinalityRelayerManagerMetaData.GetAbi()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get FinalityRelayerManager contract abi, err: %v", err)
-	}
-	rawFrmContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.FrmContractAddress), *fParsed, ethCli, ethCli,
-		ethCli,
-	)
-	bParsed, err := bls.BLSApkRegistryMetaData.GetAbi()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get BLSApkRegistry contract abi, err: %v", err)
-	}
-	rawBarContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
-		ethCli,
-	)
 	var topts *bind.TransactOpts
 	if cfg.EnableKms {
 		topts, err = kmssigner.NewAwsKmsTransactorWithChainIDCtx(ctx, kmsClient,
@@ -594,7 +578,6 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		}
 	}
 	topts.Context = ctx
-	topts.NoSend = true
 
 	latestBlock, err := ethCli.BlockNumber(ctx)
 	if err != nil {
@@ -606,7 +589,7 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		From:        from,
 	}
 
-	msg, err := bar.GetPubkeyRegMessageHash(cOpts, from)
+	msg, err := barContract.GetPubkeyRegMessageHash(cOpts, from)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PubkeyRegistrationMessageHash, err: %v", err)
 	}
@@ -628,42 +611,25 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		},
 	}
 
-	regBlsTx, err := bar.RegisterBLSPublicKey(topts, from, params, msg)
+	regBlsTx, err := barContract.RegisterBLSPublicKey(topts, from, params, msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to craft RegisterBLSPublicKey transaction, err: %v", err)
 	}
-	fRegBlsTx, err := rawBarContract.RawTransact(topts, regBlsTx.Data())
+	_, err = client.GetTransactionReceipt(ctx, ethCli, regBlsTx, time.Second*10, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to raw RegisterBLSPublicKey transaction, err: %v", err)
-	}
-	err = ethCli.SendTransaction(ctx, fRegBlsTx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send RegisterBLSPublicKey transaction, err: %v", err)
-	}
-
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx, time.Second*10, logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, fRegBlsTx.Hash().String())
+		return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, regBlsTx.Hash().String())
 	}
 
 	regOTx, err := frmContract.RegisterOperator(topts, node)
 	if err != nil {
 		return nil, fmt.Errorf("failed to craft RegisterOperator transaction, err: %v", err)
 	}
-	fRegOTx, err := rawFrmContract.RawTransact(topts, regOTx.Data())
+	_, err = client.GetTransactionReceipt(ctx, ethCli, regOTx, time.Second*10, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to raw RegisterOperator transaction, err: %v", err)
-	}
-	err = ethCli.SendTransaction(ctx, fRegOTx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send RegisterOperator transaction, err: %v", err)
-	}
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegOTx, time.Second*10, logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get RegisterOperator transaction receipt, err: %v, tx_hash: %v", err, fRegOTx.Hash().String())
+		return nil, fmt.Errorf("failed to get RegisterOperator transaction receipt, err: %v, tx_hash: %v", err, regOTx.Hash().String())
 	}
 
-	return fRegOTx, nil
+	return regOTx, nil
 }
 
 func (n *Node) startMetricsServer() error {
