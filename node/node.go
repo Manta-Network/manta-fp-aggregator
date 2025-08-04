@@ -280,9 +280,9 @@ func (n *Node) sign() {
 					continue
 				}
 
-				if requestBody.StartTimestamp <= 0 || requestBody.EndTimestamp <= 0 {
-					n.log.Error("start timestamp and end timestamp must not be nil or negative")
-					RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "start timestamp and end timestamp must not be nil or negative")
+				if requestBody.StartTimestamp <= 0 || requestBody.EndTimestamp <= 0 || requestBody.StateRoot == "" {
+					n.log.Error("start, end timestamp and state root must not be nil or negative")
+					RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "start, end timestamp and state root must not be nil or negative")
 					if err := n.wsClient.SendMsg(RpcResponse); err != nil {
 						n.log.Error("failed to send msg to manager", "err", err)
 					}
