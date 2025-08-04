@@ -117,7 +117,7 @@ func (m *Manager) sign(ctx types.Context, request interface{}, method types.Meth
 	m.sendToNodes(ctx, request, method, errSendChan)
 	wg.Wait()
 
-	if agreeNumber < len(ctx.AvailableNodes())*2/3 || respNumber == len(ctx.AvailableNodes()) {
+	if agreeNumber < len(ctx.AvailableNodes())*2/3 || respNumber != len(ctx.AvailableNodes()) {
 		return validSignResult, errNotEnoughVoteNode
 	}
 	aSign, aG2Point := aggregateSignaturesAndG2Point(g1Points, g2Points)
