@@ -47,6 +47,7 @@ type BabylonSynchronizer struct {
 	log                  log.Logger
 	txMsgChan            chan store.TxMessage
 	metrics              metrics.Metricer
+	tickerSyncer         *time.Ticker
 }
 
 func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, txMsgChan chan store.TxMessage, metricer metrics.Metricer) (*BabylonSynchronizer, error) {
@@ -95,6 +96,7 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		log:                  logger,
 		txMsgChan:            txMsgChan,
 		metrics:              metricer,
+		tickerSyncer:         time.NewTicker(time.Second * 2),
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in babylon synchronizer: %w", err))
 		}},
@@ -102,10 +104,8 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 }
 
 func (syncer *BabylonSynchronizer) Start() error {
-	tickerSyncer := time.NewTicker(time.Second * 2)
-	defer tickerSyncer.Stop()
 	syncer.tasks.Go(func() error {
-		for range tickerSyncer.C {
+		for range syncer.tickerSyncer.C {
 			done := syncer.metrics.RecordBabylonInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("babylon: retrying previous batch")
@@ -249,6 +249,8 @@ func (syncer *BabylonSynchronizer) Close() error {
 		syncer.log.Error("failed to stop babylon client", "err", err)
 		return err
 	}
+
+	syncer.tickerSyncer.Stop()
 
 	return nil
 }

@@ -33,6 +33,7 @@ type CelestiaSynchronizer struct {
 	log             log.Logger
 	namespace       share.Namespace
 	metrics         metrics.Metricer
+	tickerSyncer    *time.Ticker
 }
 
 func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, authToken string, metricer metrics.Metricer) (*CelestiaSynchronizer, error) {
@@ -91,6 +92,7 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 		log:             logger,
 		namespace:       namespace,
 		metrics:         metricer,
+		tickerSyncer:    time.NewTicker(time.Second * 2),
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in celestia synchronizer: %w", err))
 		}},
@@ -98,10 +100,8 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 }
 
 func (syncer *CelestiaSynchronizer) Start() error {
-	tickerSyncer := time.NewTicker(time.Second * 2)
-	defer tickerSyncer.Stop()
 	syncer.tasks.Go(func() error {
-		for range tickerSyncer.C {
+		for range syncer.tickerSyncer.C {
 			done := syncer.metrics.RecordCelestiaInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("celestia: retrying previous batch")
@@ -200,4 +200,5 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 
 func (syncer *CelestiaSynchronizer) Close() {
 	syncer.client.Close()
+	syncer.tickerSyncer.Stop()
 }

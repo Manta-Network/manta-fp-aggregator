@@ -31,6 +31,7 @@ type EthSynchronizer struct {
 	log               log.Logger
 	metrics           metrics.Metricer
 	tasks             tasks.Group
+	tickerSyncer      *time.Ticker
 }
 
 func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Context, logger log.Logger, shutdown context.CancelCauseFunc, contractEventChan chan store.ContractEvent, metricer metrics.Metricer) (*EthSynchronizer, error) {
@@ -81,6 +82,7 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		log:               logger,
 		contractEventChan: contractEventChan,
 		metrics:           metricer,
+		tickerSyncer:      time.NewTicker(time.Second * 2),
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in eth synchronizer: %w", err))
 		}},
@@ -88,10 +90,8 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 }
 
 func (syncer *EthSynchronizer) Start() error {
-	tickerSyncer := time.NewTicker(time.Second * 2)
-	defer tickerSyncer.Stop()
 	syncer.tasks.Go(func() error {
-		for range tickerSyncer.C {
+		for range syncer.tickerSyncer.C {
 			done := syncer.metrics.RecordEthInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("eth: retrying previous batch")
@@ -195,4 +195,5 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 
 func (syncer *EthSynchronizer) Close() {
 	syncer.ethClient.Close()
+	syncer.tickerSyncer.Stop()
 }
