@@ -23,12 +23,15 @@ type Config struct {
 	EthRpc                 string          `yaml:"eth_rpc"`
 	EthChainID             uint64          `yaml:"eth_chain_id"`
 	SymbioticStakeUrl      string          `yaml:"symbiotic_stake_url"`
+	MinMantaStakeAmount    string          `yaml:"min_manta_stake_amount"`
+	EnableKms              bool            `yaml:"enable_kms"`
 }
 
 type NodeConfig struct {
 	LevelDbFolder    string        `yaml:"level_db_folder"`
 	KeyPath          string        `yaml:"key_path"`
 	WsAddr           string        `yaml:"ws_addr"`
+	HttpAddr         string        `yaml:"http_addr"`
 	SignTimeout      time.Duration `yaml:"sign_timeout"`
 	WaitScanInterval time.Duration `yaml:"wait_scan_interval"`
 }
@@ -69,6 +72,7 @@ func DefaultConfiguration() *Config {
 			LevelDbFolder:    "node_storage",
 			KeyPath:          "key.store",
 			WsAddr:           "127.0.0.1:8081",
+			HttpAddr:         "127.0.0.1:8082",
 			SignTimeout:      10,
 			WaitScanInterval: 3,
 		},

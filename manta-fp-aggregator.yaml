@@ -2,23 +2,35 @@ manager:
   level_db_folder: "manager_storage"
   ws_addr: "tcp://127.0.0.1:8081"
   http_addr: "127.0.0.1:34567"
-  symbiotic_stake_url: ""
   sign_timeout: "20s"
   node_members: ""
   fp_timeout: "30s"
   max_babylon_operator_num: 1000
   output_submit_interval: 1200
-  celestia_config:
-    namespace: ""
-    da_rpc: ""
-    timeout: ""
 
 node:
   level_db_folder: "node_storage1"
   key_path : "key.store"
   ws_addr: "tcp://127.0.0.1:8081"
+  http_addr: "127.0.0.1:34568"
   sign_timeout: "15s"
   wait_scan_interval: "2s"
+
+celestia_config:
+    namespace: ""
+    da_rpc: ""
+    timeout: ""
+
+metrics:
+  listen_addr: ""
+  listen_port:
+
+contracts:
+  frm_contract_address: ""
+  bar_contact_address: ""
+  op_finality_gadgat: ""
+  msm_contract_address: ""
+  l2oo_contract_address: ""
 
 eth_starting_height: 1
 babylon_starting_height: 236650
@@ -29,9 +41,6 @@ celestia_block_step: 100
 babylon_rpc: ""
 eth_rpc: "http://127.0.0.1:8545"
 eth_chain_id: 31337
-contracts:
-  frm_contract_address: ""
-  bar_contact_address: ""
-  op_finality_gadgat: ""
-  msm_contract_address: ""
-  l2oo_contract_address: ""
+symbiotic_stake_url: ""
+min_manta_stake_amount: "400000000000000000000000"
+enable_kms: false

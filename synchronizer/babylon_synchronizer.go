@@ -43,13 +43,11 @@ type BabylonSynchronizer struct {
 	opFinalityGadgetAddr string
 	blockStep            uint64
 	StartTimestamp       uint64
-	confirmationDepth    *big.Int
-	resourceCtx          context.Context
-	resourceCancel       context.CancelFunc
 	tasks                tasks.Group
 	log                  log.Logger
 	txMsgChan            chan store.TxMessage
 	metrics              metrics.Metricer
+	tickerSyncer         *time.Ticker
 }
 
 func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, txMsgChan chan store.TxMessage, metricer metrics.Metricer) (*BabylonSynchronizer, error) {
@@ -69,14 +67,16 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		height := int64(dbLatestHeader)
 		block, err := cli.Block(ctx, &height)
 		if err != nil {
-			logger.Error("failed to get babylon block", "height", dbLatestHeader)
+			logger.Error("failed to get babylon block by latest db header", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch babylon starting block header by latest db header: %w", err)
 		}
 		fromHeader = &block.Block.Header
 	} else if cfg.BabylonStartingHeight > 0 {
 		logger.Info("babylon: no sync indexed state starting from supplied babylon height", "height", cfg.BabylonStartingHeight)
 		block, err := cli.Block(ctx, &cfg.BabylonStartingHeight)
 		if err != nil {
-			return nil, fmt.Errorf("could not fetch babylon starting block header: %w", err)
+			logger.Error("failed to get babylon block by cfg height", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch babylon starting block header by cfg height: %w", err)
 		}
 		fromHeader = &block.Block.Header
 	} else {
@@ -85,7 +85,6 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 
 	headerTraversal := node.NewBabylonHeaderTraversal(cli, fromHeader, big.NewInt(0))
 
-	resCtx, resCancel := context.WithCancel(context.Background())
 	return &BabylonSynchronizer{
 		client:               cli,
 		blockStep:            cfg.BabylonBlockStep,
@@ -93,12 +92,11 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 		LatestHeader:         fromHeader,
 		StartTimestamp:       uint64(fromHeader.Time.Unix()),
 		db:                   db,
-		resourceCtx:          resCtx,
-		resourceCancel:       resCancel,
 		opFinalityGadgetAddr: cfg.Contracts.OpFinalityGadgat,
 		log:                  logger,
 		txMsgChan:            txMsgChan,
 		metrics:              metricer,
+		tickerSyncer:         time.NewTicker(time.Second * 2),
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in babylon synchronizer: %w", err))
 		}},
@@ -106,9 +104,8 @@ func NewBabylonSynchronizer(ctx context.Context, cfg *config.Config, db *store.S
 }
 
 func (syncer *BabylonSynchronizer) Start() error {
-	tickerSyncer := time.NewTicker(time.Second * 2)
 	syncer.tasks.Go(func() error {
-		for range tickerSyncer.C {
+		for range syncer.tickerSyncer.C {
 			done := syncer.metrics.RecordBabylonInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("babylon: retrying previous batch")
@@ -164,7 +161,7 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 		}
 		blockHeaders = append(blockHeaders, bHeader)
 
-		block, err := syncer.client.Block(syncer.resourceCtx, &headers[i].Height)
+		block, err := syncer.client.Block(context.Background(), &headers[i].Height)
 		if err != nil {
 			syncer.log.Error("babylon: failed to get block", "err", err, "height", headers[i].Height)
 			return err
@@ -248,5 +245,12 @@ func (syncer *BabylonSynchronizer) processBatch(headers []types2.Header) error {
 }
 
 func (syncer *BabylonSynchronizer) Close() error {
+	if err := syncer.client.Stop(); err != nil {
+		syncer.log.Error("failed to stop babylon client", "err", err)
+		return err
+	}
+
+	syncer.tickerSyncer.Stop()
+
 	return nil
 }
