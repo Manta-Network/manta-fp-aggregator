@@ -219,6 +219,11 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 }
 
 func (m *Manager) Start(ctx context.Context) error {
+	err := m.db.DeleteUnusedMembers(m.NodeMembers)
+	if err != nil {
+		m.log.Error("failed to delete unused members")
+		return err
+	}
 	waitNodeTicker := time.NewTicker(5 * time.Second)
 	var done bool
 	for !done {
