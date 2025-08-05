@@ -36,6 +36,8 @@ func (n *Node) ProcessMessage() {
 				} else {
 					n.log.Error(fmt.Sprintf("unknown rpc request method : %s ", rpcReq.Method))
 				}
+			case <-n.done:
+				return
 			}
 
 		}

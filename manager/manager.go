@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -24,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 
-	"github.com/Manta-Network/manta-fp-aggregator/bindings/bls"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
 	sfp "github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
@@ -69,20 +67,15 @@ type Manager struct {
 	ctx     context.Context
 	stopped atomic.Bool
 
-	ethChainID      uint64
-	privateKey      *ecdsa.PrivateKey
-	from            common.Address
-	ethClient       *ethclient.Client
-	frmContract     *finality.FinalityRelayerManager
-	frmContractAddr common.Address
-	rawFrmContract  *bind.BoundContract
-	barContract     *bls.BLSApkRegistry
-	barContractAddr common.Address
-	rawBarContract  *bind.BoundContract
-	msmContract     *sfp.MantaStakingMiddleware
-	l2oo            *bindings.L2OutputOracle
-	batchId         uint64
-	isFirstBatch    bool
+	ethChainID   uint64
+	privateKey   *ecdsa.PrivateKey
+	from         common.Address
+	ethClient    *ethclient.Client
+	frmContract  *finality.FinalityRelayerManager
+	msmContract  *sfp.MantaStakingMiddleware
+	l2oo         *bindings.L2OutputOracle
+	batchId      uint64
+	isFirstBatch bool
 
 	babylonSynchronizer  *synchronizer.BabylonSynchronizer
 	ethSynchronizer      *synchronizer.EthSynchronizer
@@ -130,30 +123,6 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	if err != nil {
 		return nil, err
 	}
-	fParsed, err := abi.JSON(strings.NewReader(
-		finality.FinalityRelayerManagerABI,
-	))
-	if err != nil {
-		return nil, err
-	}
-	rawfrmContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.FrmContractAddress), fParsed, ethCli, ethCli,
-		ethCli,
-	)
-
-	barContract, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
-	if err != nil {
-		return nil, err
-	}
-	bParsed, err := bls.BLSApkRegistryMetaData.GetAbi()
-	if err != nil {
-		return nil, err
-	}
-	rawBarContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
-		ethCli,
-	)
-
 	msmContract, err := sfp.NewMantaStakingMiddleware(common.HexToAddress(cfg.Contracts.MsmContractAddress), ethCli)
 	if err != nil {
 		return nil, err
@@ -230,11 +199,6 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 		ethChainID:               cfg.EthChainID,
 		ethClient:                ethCli,
 		frmContract:              frmContract,
-		frmContractAddr:          common.HexToAddress(cfg.Contracts.FrmContractAddress),
-		rawFrmContract:           rawfrmContract,
-		barContract:              barContract,
-		barContractAddr:          common.HexToAddress(cfg.Contracts.BarContactAddress),
-		rawBarContract:           rawBarContract,
 		msmContract:              msmContract,
 		batchId:                  batchId.Uint64(),
 		l2oo:                     l2ooContract,
@@ -266,6 +230,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.httpServer = s
 
 	waitNodeTicker := time.NewTicker(5 * time.Second)
+	defer waitNodeTicker.Stop()
 	var done bool
 	for !done {
 		select {
@@ -309,6 +274,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 func (m *Manager) Stop(ctx context.Context) error {
 	close(m.done)
+	m.wg.Wait()
 	if err := m.httpServer.Shutdown(ctx); err != nil {
 		m.log.Error("http server forced to shutdown", "err", err)
 		return err
@@ -317,12 +283,10 @@ func (m *Manager) Stop(ctx context.Context) error {
 	//	m.log.Error("babylon synchronizer server forced to shutdown", "err", err)
 	//	return err
 	//}
-	if err := m.ethSynchronizer.Close(); err != nil {
-		m.log.Error("eth synchronizer server forced to shutdown", "err", err)
-		return err
-	}
-	if err := m.celestiaSynchronizer.Close(); err != nil {
-		m.log.Error("celestia synchronizer server forced to shutdown", "err", err)
+	m.ethSynchronizer.Close()
+	m.celestiaSynchronizer.Close()
+	if err := m.db.Close(); err != nil {
+		m.log.Error("failed to close db server", "err", err)
 		return err
 	}
 	if m.metricsServer != nil {
@@ -379,6 +343,7 @@ func (m *Manager) getWindowPeriodStartTime() error {
 
 func (m *Manager) work() {
 	fpTicker := time.NewTicker(m.cfg.Manager.FPTimeout)
+	defer fpTicker.Stop()
 	defer m.wg.Done()
 
 	for {
@@ -570,7 +535,6 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		}
 	}
 	opts.Context = context.Background()
-	opts.NoSend = true
 
 	finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
 		StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
@@ -609,25 +573,14 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 
 	tx, err := m.frmContract.VerifyFinalitySignature(opts, finalityBatch, finalityNonSignerAndSignature, big.NewInt(100000))
 	if err != nil {
-		m.log.Error("failed to craft VerifyFinalitySignature transaction", "err", err)
-		return err
-	}
-	rTx, err := m.rawFrmContract.RawTransact(opts, tx.Data())
-	if err != nil {
-		m.log.Error("failed to raw VerifyFinalitySignature transaction", "err", err)
-		return err
-	}
-
-	err = m.ethClient.SendTransaction(context.Background(), rTx)
-	if err != nil {
 		m.log.Error("failed to send VerifyFinalitySignature transaction", "err", err)
 		return err
 	}
 
-	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, rTx, time.Second*10, m.log)
+	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, tx, time.Second*10, m.log)
 	if err != nil {
 		m.log.Error("failed to get verify finality transaction receipt", "err", err)
-		m.metrics.RecordGetReceiptError(rTx.Hash().String())
+		m.metrics.RecordGetReceiptError(tx.Hash().String())
 		return err
 	}
 
@@ -640,11 +593,6 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 
 	if err = m.db.ChangeBatchStakeDetailsStatus(m.batchId, store.Confirmed); err != nil {
 		m.log.Error("failed to change batch stake details status", "err", err)
-		return err
-	}
-
-	if err = m.db.SetLatestProcessedStateRoot(*op); err != nil {
-		m.log.Error("failed to set latest processed state root", "err", err)
 		return err
 	}
 
@@ -662,7 +610,7 @@ func (m *Manager) SignMsgBatch(request types.SignMsgRequest) (*types.SignResult,
 		return nil, err
 	}
 	availableNodes := m.availableNodes(activeMember.Members)
-	if len(availableNodes) == 0 {
+	if len(availableNodes) < len(activeMember.Members) {
 		m.log.Warn("not enough sign node", "availableNodes", availableNodes)
 		return nil, errNotEnoughSignNode
 	}
@@ -768,7 +716,7 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 	if err != nil {
 		return nil, err
 	}
-	m.log.Info("start counting fp signatures", "start", op.Timestamp.Uint64(), "end", end)
+	m.log.Info("start counting fp signatures", "start", op.Timestamp.Uint64(), "end", end, "stateroot", op.StateRoot)
 
 	babylonFinalitySignatures, err := m.db.GetBabylonFinalitySignatureByTimestamp(op.Timestamp.Uint64(), end)
 	if err != nil {
@@ -781,7 +729,7 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 	}
 
 	for _, bfs := range babylonFinalitySignatures {
-		if bfs.SubmitFinalitySignature.L2BlockNumber == op.L2BlockNumber.Uint64() {
+		if bfs.SubmitFinalitySignature.L1BlockNumber == op.L1BlockNumber && bfs.SubmitFinalitySignature.L2BlockNumber == op.L2BlockNumber.Uint64() {
 			stateRootCountCache[bfs.SubmitFinalitySignature.StateRoot]++
 			if babylonFpSignCache[bfs.SubmitFinalitySignature.FpPubkeyHex] == "" {
 				babylonFpSignCache[bfs.SubmitFinalitySignature.FpPubkeyHex] = bfs.SubmitFinalitySignature.StateRoot
@@ -855,54 +803,79 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 }
 
 func (m *Manager) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {
-	query := fmt.Sprintf(`{"query":"query {\n  vaultUpdates(first: 1, where: {operator: \"%s\"}, orderBy: timestamp, orderDirection: desc) {\n    vaultTotalActiveStaked\n  }\n}"}`, operator)
-	jsonQuery := []byte(query)
+	query := fmt.Sprintf(`
+		query {
+			vaultUpdates(
+				first: 1, 
+				where: {operator: "%s"}, 
+				orderBy: timestamp, 
+				orderDirection: desc
+			) {
+				vaultTotalActiveStaked
+			}
+		}`, operator)
 
-	req, err := http.NewRequest("POST", m.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonQuery))
+	requestBody := common2.SymbioticStakeRequest{Query: query}
+	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
-		m.log.Error("Error creating HTTP request:", "err", err)
+		m.log.Error("Error marshaling JSON request", "err", err)
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", m.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		m.log.Error("Error creating HTTP request", "err", err)
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, multipart/mixed")
+	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	hClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := hClient.Do(req)
 	if err != nil {
-		m.log.Error("Error sending HTTP request:", "err", err)
+		m.log.Error("Error sending HTTP request", "err", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		m.log.Error("Error reading response body:", "err", err)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		m.log.Error("GraphQL server returned error status",
+			"status", resp.Status,
+			"response", string(body))
+		return nil, fmt.Errorf("graphql server error: %s", resp.Status)
+	}
+
+	var response common2.SymbioticStakeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		m.log.Error("Error decoding JSON response", "err", err)
 		return nil, err
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		m.log.Error("Error parsing JSON response:", "err", err)
-		return nil, err
+	if len(response.Errors) > 0 {
+		errMsg := response.Errors[0].Message
+		m.log.Error("GraphQL query returned errors", "errors", response.Errors)
+		return nil, fmt.Errorf("graphql error: %s", errMsg)
 	}
 
-	var totalStaked = big.NewInt(0)
-	if data, exists := result["data"]; exists {
-		if vaultUpdates, exists := data.(map[string]interface{})["vaultUpdates"]; exists {
-			if len(vaultUpdates.([]interface{})) > 0 {
-				vaultTotalActiveStaked := vaultUpdates.([]interface{})[0].(map[string]interface{})["vaultTotalActiveStaked"]
-				totalStaked, _ = new(big.Int).SetString(vaultTotalActiveStaked.(string), 10)
-				m.log.Info(fmt.Sprintf("operator %s vaultTotalActiveStaked: %s", operator, vaultTotalActiveStaked))
-			} else {
-				m.log.Warn(fmt.Sprintf("operator %s no vault updates found", operator))
-			}
-		} else {
-			m.log.Warn(fmt.Sprintf("operator %s no vaultUpdates field found in response data", operator))
-		}
-	} else {
-		m.log.Warn(fmt.Sprintf("operator %s no data field found in JSON response", operator))
+	if len(response.Data.VaultUpdates) == 0 {
+		m.log.Warn("No vault updates found for operator", "operator", operator)
+		return big.NewInt(0), nil
 	}
+
+	stakeStr := response.Data.VaultUpdates[0].VaultTotalActiveStaked
+	totalStaked, ok := new(big.Int).SetString(stakeStr, 10)
+	if !ok {
+		m.log.Error("Invalid stake amount format",
+			"value", stakeStr,
+			"operator", operator)
+		return nil, fmt.Errorf("invalid stake amount: %s", stakeStr)
+	}
+
+	m.log.Info("Retrieved operator stake amount",
+		"operator", operator,
+		"amount", totalStaked.String())
 
 	return totalStaked, nil
 }

@@ -27,14 +27,11 @@ type EthSynchronizer struct {
 	HeaderTraversal   *node.EthHeaderTraversal
 	blockStep         uint64
 	contracts         []common.Address
-	startHeight       *big.Int
-	confirmationDepth *big.Int
-	resourceCtx       context.Context
-	resourceCancel    context.CancelFunc
 	contractEventChan chan store.ContractEvent
 	log               log.Logger
 	metrics           metrics.Metricer
 	tasks             tasks.Group
+	tickerSyncer      *time.Ticker
 }
 
 func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Context, logger log.Logger, shutdown context.CancelCauseFunc, contractEventChan chan store.ContractEvent, metricer metrics.Metricer) (*EthSynchronizer, error) {
@@ -52,27 +49,29 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		logger.Info("eth: sync detected last indexed block", "number", dbLatestHeader)
 		header, err := client.BlockHeaderByNumber(big.NewInt(int64(dbLatestHeader)))
 		if err != nil {
-			logger.Error("failed to get eth block header", "height", dbLatestHeader)
+			logger.Error("failed to get eth block header by latest db header", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch eth starting block header by latest db header: %w", err)
 		}
 		fromHeader = header
 	} else if cfg.EthStartingHeight > 0 {
 		logger.Info("eth: no sync indexed state starting from supplied ethereum height", "height", cfg.EthStartingHeight)
 		header, err := client.BlockHeaderByNumber(big.NewInt(cfg.EthStartingHeight))
 		if err != nil {
-			return nil, fmt.Errorf("could not fetch eth starting block header: %w", err)
+			logger.Error("failed to get eth block header by cfg height", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch eth starting block header by cfg height: %w", err)
 		}
 		fromHeader = header
 	} else {
 		logger.Info("no ethereum block indexed state")
 	}
 
-	headerTraversal := node.NewEthHeaderTraversal(client, fromHeader, big.NewInt(0))
+	// The probability of 12 blocks being reorganized is very low for ethereum
+	headerTraversal := node.NewEthHeaderTraversal(client, fromHeader, big.NewInt(12))
 
 	var contracts []common.Address
 	contracts = append(contracts, common.HexToAddress(cfg.Contracts.FrmContractAddress))
 	contracts = append(contracts, common.HexToAddress(cfg.Contracts.L2ooContractAddress))
 
-	resCtx, resCancel := context.WithCancel(context.Background())
 	return &EthSynchronizer{
 		HeaderTraversal:   headerTraversal,
 		ethClient:         client,
@@ -80,11 +79,10 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 		db:                db,
 		blockStep:         cfg.EthBlockStep,
 		contracts:         contracts,
-		resourceCtx:       resCtx,
-		resourceCancel:    resCancel,
 		log:               logger,
 		contractEventChan: contractEventChan,
 		metrics:           metricer,
+		tickerSyncer:      time.NewTicker(time.Second * 2),
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in eth synchronizer: %w", err))
 		}},
@@ -92,9 +90,8 @@ func NewEthSynchronizer(cfg *config.Config, db *store.Storage, ctx context.Conte
 }
 
 func (syncer *EthSynchronizer) Start() error {
-	tickerSyncer := time.NewTicker(time.Second * 2)
 	syncer.tasks.Go(func() error {
-		for range tickerSyncer.C {
+		for range syncer.tickerSyncer.C {
 			done := syncer.metrics.RecordEthInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("eth: retrying previous batch")
@@ -160,7 +157,7 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 			continue
 		}
 		eHeader := store.EthBlockHeader{
-			Hash:       headers[i].TxHash,
+			Hash:       headers[i].Hash(),
 			ParentHash: headers[i].ParentHash,
 			Number:     headers[i].Number.Int64(),
 			Timestamp:  int64(headers[i].Time),
@@ -195,6 +192,8 @@ func (syncer *EthSynchronizer) processBatch(headers []types.Header) error {
 
 	return nil
 }
-func (syncer *EthSynchronizer) Close() error {
-	return nil
+
+func (syncer *EthSynchronizer) Close() {
+	syncer.ethClient.Close()
+	syncer.tickerSyncer.Stop()
 }
