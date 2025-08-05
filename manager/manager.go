@@ -753,7 +753,6 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 				m.log.Error(fmt.Errorf("failed to get operator info at block: %v, err: %v", cOpts.BlockNumber, err).Error())
 				continue
 			}
-
 			if operator.OperatorName == "" {
 				m.log.Warn(fmt.Sprintf("node %s is not operator", sfs.SignRequests.SignAddress))
 				continue
@@ -764,7 +763,12 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 				}
 			}
 			if symbioticFpSignCache[sfs.SignRequests.SignAddress] == "" {
-				amount, err := m.getSymbioticOperatorStakeAmount(strings.ToLower(sfs.SignRequests.SignAddress))
+				vault, err := sfp.NewSymbioticVault(operator.Vault, m.ethClient)
+				if err != nil {
+					m.log.Error("failed to get operator vault", "address", sfs.SignRequests.SignAddress, "err", err)
+					continue
+				}
+				amount, err := vault.ActiveStakeAt(cOpts, op.Timestamp, nil)
 				if err != nil {
 					m.log.Error("failed to get operator stake amount", "address", sfs.SignRequests.SignAddress, "err", err)
 					continue

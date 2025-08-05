@@ -7,6 +7,7 @@ LDFLAGS := -ldflags "$(LDFLAGSSTRING)"
 
 FinalityRelayerManagerAbiPath := ./manta-fp-contracts/out/FinalityRelayerManager.sol/FinalityRelayerManager.json
 BLSApkRegistryAbiPath := ./manta-fp-contracts/out/BLSApkRegistry.sol/BLSApkRegistry.json
+SymbioticVaultAbiPath := ./bindings/sfp/abi.json
 
 
 build:
@@ -58,6 +59,21 @@ binding-finality:
 
 		rm $(temp)
 
+binding-sv:
+	$(eval temp := $(shell mktemp))
+
+	cat $(SymbioticVaultAbiPath) \
+    	| jq -r .bytecode.object > $(temp)
+
+	cat $(SymbioticVaultAbiPath) \
+		| jq .abi \
+		| abigen --pkg sfp \
+		--abi - \
+		--out bindings/sfp/symbiotic_vault.go \
+		--type SymbioticVault \
+		--bin $(temp)
+
+		rm $(temp)
 
 .PHONY: \
 	 build \
@@ -65,6 +81,7 @@ binding-finality:
 	 bindings \
 	 binding-bls \
 	 binding-finality \
+	 binding-sv \
 	 clean \
 	 test \
 	 lint \
