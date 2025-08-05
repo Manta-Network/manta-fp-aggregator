@@ -30,7 +30,6 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/common/httputil"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
 	kmssigner "github.com/Manta-Network/manta-fp-aggregator/kms"
-	"github.com/Manta-Network/manta-fp-aggregator/manager/router"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	"github.com/Manta-Network/manta-fp-aggregator/sign"
@@ -41,7 +40,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	types2 "github.com/babylonlabs-io/babylon/x/btcstaking/types"
 	"github.com/ethereum-optimism/optimism/op-proposer/bindings"
-	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -217,39 +215,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.log.Error("failed to delete unused members")
 		return err
 	}
-	waitNodeTicker := time.NewTicker(5 * time.Second)
-	var done bool
-	for !done {
-		select {
-		case <-waitNodeTicker.C:
-			availableNodes := m.availableNodes(m.NodeMembers)
-			if len(availableNodes) < len(m.NodeMembers) {
-				m.log.Warn("wait node to connect", "availableNodesNum", len(availableNodes), "connectedNodeNum", len(m.NodeMembers))
-				continue
-			} else {
-				done = true
-				break
-			}
-		}
-	}
-
-	registry := router.NewRegistry(m, m.db)
-	r := gin.Default()
-	registry.Register(r)
-
-	var s *http.Server
-	s = &http.Server{
-		Addr:    m.cfg.Manager.HttpAddr,
-		Handler: r,
-	}
-
-	go func() {
-		if err := s.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
-			m.log.Error("api server starts failed", "err", err)
-		}
-	}()
-	m.httpServer = s
-
+	
 	waitNodeTicker := time.NewTicker(5 * time.Second)
 	defer waitNodeTicker.Stop()
 	var done bool
