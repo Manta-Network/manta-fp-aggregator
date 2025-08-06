@@ -1,10 +1,8 @@
 package manager
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -809,84 +807,6 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 	}
 
 	return &voteStateRoot, nil
-}
-
-func (m *Manager) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {
-	query := fmt.Sprintf(`
-		query {
-			vaultUpdates(
-				first: 1, 
-				where: {operator: "%s"}, 
-				orderBy: timestamp, 
-				orderDirection: desc
-			) {
-				vaultTotalActiveStaked
-			}
-		}`, operator)
-
-	requestBody := common2.SymbioticStakeRequest{Query: query}
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		m.log.Error("Error marshaling JSON request", "err", err)
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", m.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		m.log.Error("Error creating HTTP request", "err", err)
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	hClient := &http.Client{Timeout: 10 * time.Second}
-	resp, err := hClient.Do(req)
-	if err != nil {
-		m.log.Error("Error sending HTTP request", "err", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		m.log.Error("GraphQL server returned error status",
-			"status", resp.Status,
-			"response", string(body))
-		return nil, fmt.Errorf("graphql server error: %s", resp.Status)
-	}
-
-	var response common2.SymbioticStakeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		m.log.Error("Error decoding JSON response", "err", err)
-		return nil, err
-	}
-
-	if len(response.Errors) > 0 {
-		errMsg := response.Errors[0].Message
-		m.log.Error("GraphQL query returned errors", "errors", response.Errors)
-		return nil, fmt.Errorf("graphql error: %s", errMsg)
-	}
-
-	if len(response.Data.VaultUpdates) == 0 {
-		m.log.Warn("No vault updates found for operator", "operator", operator)
-		return big.NewInt(0), nil
-	}
-
-	stakeStr := response.Data.VaultUpdates[0].VaultTotalActiveStaked
-	totalStaked, ok := new(big.Int).SetString(stakeStr, 10)
-	if !ok {
-		m.log.Error("Invalid stake amount format",
-			"value", stakeStr,
-			"operator", operator)
-		return nil, fmt.Errorf("invalid stake amount: %s", stakeStr)
-	}
-
-	m.log.Info("Retrieved operator stake amount",
-		"operator", operator,
-		"amount", totalStaked.String())
-
-	return totalStaked, nil
 }
 
 func (m *Manager) getLatestConfirmBatchId() error {
