@@ -1,17 +1,14 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,7 +24,6 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/finality"
 	"github.com/Manta-Network/manta-fp-aggregator/bindings/sfp"
 	"github.com/Manta-Network/manta-fp-aggregator/client"
-	common3 "github.com/Manta-Network/manta-fp-aggregator/common"
 	"github.com/Manta-Network/manta-fp-aggregator/common/httputil"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
 	kmssigner "github.com/Manta-Network/manta-fp-aggregator/kms"
@@ -55,9 +51,10 @@ type Node struct {
 	privateKey *ecdsa.PrivateKey
 	from       common.Address
 
-	cfg     *config.Config
-	ctx     context.Context
-	stopped atomic.Bool
+	cfg       *config.Config
+	ctx       context.Context
+	stopped   atomic.Bool
+	ethClient *ethclient.Client
 
 	wsClient   *wsclient.WSClients
 	httpServer *http.Server
@@ -138,6 +135,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 		db:              db,
 		privateKey:      privKey,
 		from:            from,
+		ethClient:       ethCli,
 		cfg:             cfg,
 		ctx:             ctx,
 		msmContract:     msmContract,
@@ -452,7 +450,12 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 			}
 
 			if symbioticFpSignCache[sfs.SignRequests.SignAddress] == "" {
-				amount, err := n.getSymbioticOperatorStakeAmount(strings.ToLower(sfs.SignRequests.SignAddress))
+				vault, err := sfp.NewSymbioticVault(operator.Vault, n.ethClient)
+				if err != nil {
+					n.log.Error("failed to get operator vault", "address", sfs.SignRequests.SignAddress, "err", err)
+					continue
+				}
+				amount, err := vault.ActiveStakeAt(cOpts, new(big.Int).SetUint64(request.StartTimestamp), nil)
 				if err != nil {
 					n.log.Error("failed to get operator stake amount", "address", sfs.SignRequests.SignAddress, "err", err)
 					continue
@@ -478,84 +481,6 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 	}
 
 	return maxSignStateRoot, nil
-}
-
-func (n *Node) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {
-	query := fmt.Sprintf(`
-		query {
-			vaultUpdates(
-				first: 1, 
-				where: {operator: "%s"}, 
-				orderBy: timestamp, 
-				orderDirection: desc
-			) {
-				vaultTotalActiveStaked
-			}
-		}`, operator)
-
-	requestBody := common3.SymbioticStakeRequest{Query: query}
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		n.log.Error("Error marshaling JSON request", "err", err)
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", n.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		n.log.Error("Error creating HTTP request", "err", err)
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	hClient := &http.Client{Timeout: 10 * time.Second}
-	resp, err := hClient.Do(req)
-	if err != nil {
-		n.log.Error("Error sending HTTP request", "err", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		n.log.Error("GraphQL server returned error status",
-			"status", resp.Status,
-			"response", string(body))
-		return nil, fmt.Errorf("graphql server error: %s", resp.Status)
-	}
-
-	var response common3.SymbioticStakeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		n.log.Error("Error decoding JSON response", "err", err)
-		return nil, err
-	}
-
-	if len(response.Errors) > 0 {
-		errMsg := response.Errors[0].Message
-		n.log.Error("GraphQL query returned errors", "errors", response.Errors)
-		return nil, fmt.Errorf("graphql error: %s", errMsg)
-	}
-
-	if len(response.Data.VaultUpdates) == 0 {
-		n.log.Warn("No vault updates found for operator", "operator", operator)
-		return big.NewInt(0), nil
-	}
-
-	stakeStr := response.Data.VaultUpdates[0].VaultTotalActiveStaked
-	totalStaked, ok := new(big.Int).SetString(stakeStr, 10)
-	if !ok {
-		n.log.Error("Invalid stake amount format",
-			"value", stakeStr,
-			"operator", operator)
-		return nil, fmt.Errorf("invalid stake amount: %s", stakeStr)
-	}
-
-	n.log.Info("Retrieved operator stake amount",
-		"operator", operator,
-		"amount", totalStaked.String())
-
-	return totalStaked, nil
 }
 
 func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, from common.Address, keyPairs *sign.KeyPair, kmsId string, kmsClient *kms.Client, logger log.Logger) (*types2.Transaction, error) {
