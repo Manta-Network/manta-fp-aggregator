@@ -22,7 +22,6 @@ type Config struct {
 	BabylonRpc             string          `yaml:"babylon_rpc"`
 	EthRpc                 string          `yaml:"eth_rpc"`
 	EthChainID             uint64          `yaml:"eth_chain_id"`
-	SymbioticStakeUrl      string          `yaml:"symbiotic_stake_url"`
 	MinMantaStakeAmount    string          `yaml:"min_manta_stake_amount"`
 	EnableKms              bool            `yaml:"enable_kms"`
 }
