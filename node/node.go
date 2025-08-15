@@ -1,16 +1,14 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,15 +26,19 @@ import (
 	"github.com/Manta-Network/manta-fp-aggregator/client"
 	"github.com/Manta-Network/manta-fp-aggregator/common/httputil"
 	"github.com/Manta-Network/manta-fp-aggregator/config"
+	kmssigner "github.com/Manta-Network/manta-fp-aggregator/kms"
 	"github.com/Manta-Network/manta-fp-aggregator/manager/types"
 	"github.com/Manta-Network/manta-fp-aggregator/metrics"
 	common2 "github.com/Manta-Network/manta-fp-aggregator/node/common"
+	"github.com/Manta-Network/manta-fp-aggregator/node/router"
 	"github.com/Manta-Network/manta-fp-aggregator/sign"
 	"github.com/Manta-Network/manta-fp-aggregator/store"
 	"github.com/Manta-Network/manta-fp-aggregator/synchronizer"
 	wsclient "github.com/Manta-Network/manta-fp-aggregator/ws/client"
 
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	tdtypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
@@ -49,17 +51,15 @@ type Node struct {
 	privateKey *ecdsa.PrivateKey
 	from       common.Address
 
-	cfg      *config.Config
-	ctx      context.Context
-	cancel   context.CancelFunc
-	stopChan chan struct{}
-	stopped  atomic.Bool
+	cfg       *config.Config
+	ctx       context.Context
+	stopped   atomic.Bool
+	ethClient *ethclient.Client
 
-	wsClient *wsclient.WSClients
-	keyPairs *sign.KeyPair
+	wsClient   *wsclient.WSClients
+	httpServer *http.Server
+	keyPairs   *sign.KeyPair
 
-	signTimeout          time.Duration
-	waitScanInterval     time.Duration
 	signRequestChan      chan tdtypes.RPCRequest
 	babylonSynchronizer  *synchronizer.BabylonSynchronizer
 	celestiaSynchronizer *synchronizer.CelestiaSynchronizer
@@ -68,15 +68,27 @@ type Node struct {
 	msmContract *sfp.MantaStakingMiddleware
 
 	metricsRegistry *prometheus.Registry
-	metrics         metrics.Metricer
 	metricsServer   *httputil.HTTPServer
 }
 
-func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.PrivateKey, keyPairs *sign.KeyPair, shouldRegister bool, cfg *config.Config, logger log.Logger, shutdown context.CancelCauseFunc, authToken string) (*Node, error) {
-	from := crypto.PubkeyToAddress(privKey.PublicKey)
+func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.PrivateKey, keyPairs *sign.KeyPair, shouldRegister bool, cfg *config.Config, logger log.Logger, shutdown context.CancelCauseFunc, authToken string, kmsId string, kmsRegion string) (*Node, error) {
+	var kmsClient *kms.Client
+	var from common.Address
+	var pubkey *ecdsa.PublicKey
+	var err error
 
-	pubkey := crypto.CompressPubkey(&privKey.PublicKey)
-	pubkeyHex := hex.EncodeToString(pubkey)
+	if cfg.EnableKms {
+		kmsClient, err = kmssigner.NewKmsClientFromConfig(context.Background(), kmsRegion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the kms client: %w", err)
+		}
+		pubkey, err = kmssigner.GetPubKeyCtx(ctx, kmsClient, kmsId)
+	} else {
+		pubkey = &privKey.PublicKey
+	}
+
+	from = crypto.PubkeyToAddress(*pubkey)
+	pubkeyHex := hex.EncodeToString(crypto.CompressPubkey(pubkey))
 	logger.Info(fmt.Sprintf("pub key is (%s) \n", pubkeyHex))
 
 	ethCli, err := client.DialEthClientWithTimeout(ctx, cfg.EthRpc, false)
@@ -85,7 +97,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	}
 	if shouldRegister {
 		logger.Info("register to operator ...")
-		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, keyPairs)
+		tx, err := registerOperator(ctx, ethCli, cfg, privKey, pubkeyHex, from, keyPairs, kmsId, kmsClient, logger)
 		if err != nil {
 			logger.Error("failed to register operator", "err", err)
 			return nil, err
@@ -98,7 +110,7 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 		return nil, err
 	}
 
-	wsClient, err := wsclient.NewWSClient(cfg.Node.WsAddr, "/ws", privKey, pubkeyHex)
+	wsClient, err := wsclient.NewWSClient(cfg.Node.WsAddr, "/ws", pubkeyHex)
 	if err != nil {
 		return nil, err
 	}
@@ -107,30 +119,30 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	metricer := metrics.NewMetrics(registry)
 
 	txMsgChan := make(chan store.TxMessage, 100)
-	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
-	if err != nil {
-		return nil, err
-	}
+	//babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
+	//if err != nil {
+	//	return nil, err
+	//}
 	celestiaSynchronizer, err := synchronizer.NewCelestiaSynchronizer(ctx, cfg, db, shutdown, logger, authToken, metricer)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Node{
-		wg:                   sync.WaitGroup{},
-		done:                 make(chan struct{}),
-		stopChan:             make(chan struct{}),
-		log:                  logger,
-		db:                   db,
-		privateKey:           privKey,
-		from:                 from,
-		cfg:                  cfg,
-		ctx:                  ctx,
-		msmContract:          msmContract,
-		wsClient:             wsClient,
-		keyPairs:             keyPairs,
-		signRequestChan:      make(chan tdtypes.RPCRequest, 100),
-		babylonSynchronizer:  babylonSynchronizer,
+		wg:              sync.WaitGroup{},
+		done:            make(chan struct{}),
+		log:             logger,
+		db:              db,
+		privateKey:      privKey,
+		from:            from,
+		ethClient:       ethCli,
+		cfg:             cfg,
+		ctx:             ctx,
+		msmContract:     msmContract,
+		wsClient:        wsClient,
+		keyPairs:        keyPairs,
+		signRequestChan: make(chan tdtypes.RPCRequest, 100),
+		//babylonSynchronizer:  babylonSynchronizer,
 		celestiaSynchronizer: celestiaSynchronizer,
 		txMsgChan:            txMsgChan,
 		metricsRegistry:      registry,
@@ -138,12 +150,29 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 }
 
 func (n *Node) Start(ctx context.Context) error {
+	registry := router.NewRegistry()
+	r := gin.Default()
+	registry.Register(r)
+
+	var s *http.Server
+	s = &http.Server{
+		Addr:    n.cfg.Node.HttpAddr,
+		Handler: r,
+	}
+
+	go func() {
+		if err := s.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
+			n.log.Error("api server starts failed", "err", err)
+		}
+	}()
+	n.httpServer = s
+
 	n.wg.Add(3)
 	go n.ProcessMessage()
 	go n.sign()
-	go n.work()
+	//go n.work()
 
-	go n.babylonSynchronizer.Start()
+	//go n.babylonSynchronizer.Start()
 	go n.celestiaSynchronizer.Start()
 
 	if err := n.startMetricsServer(); err != nil {
@@ -154,11 +183,14 @@ func (n *Node) Start(ctx context.Context) error {
 }
 
 func (n *Node) Stop(ctx context.Context) error {
-	n.cancel()
 	close(n.done)
 	n.wg.Wait()
-	n.babylonSynchronizer.Close()
+	//n.babylonSynchronizer.Close()
 	n.celestiaSynchronizer.Close()
+	if err := n.db.Close(); err != nil {
+		n.log.Error("failed to close db server", "err", err)
+		return err
+	}
 	if n.metricsServer != nil {
 		if err := n.metricsServer.Close(); err != nil {
 			n.log.Error("failed to close metrics server", "err", err)
@@ -201,6 +233,8 @@ func (n *Node) work() {
 				n.log.Error("failed to process SubmitFinalitySignature msg", "err", err)
 				continue
 			}
+		case <-n.done:
+			return
 		}
 	}
 }
@@ -216,7 +250,7 @@ func (n *Node) sign() {
 		}()
 		for {
 			select {
-			case <-n.stopChan:
+			case <-n.done:
 				return
 			case req := <-n.signRequestChan:
 				var resId = req.ID.(tdtypes.JSONRPCStringID).String()
@@ -244,9 +278,9 @@ func (n *Node) sign() {
 					continue
 				}
 
-				if requestBody.StartTimestamp <= 0 || requestBody.EndTimestamp <= 0 {
-					n.log.Error("start timestamp and end timestamp must not be nil or negative")
-					RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "start timestamp and end timestamp must not be nil or negative")
+				if requestBody.StartTimestamp <= 0 || requestBody.EndTimestamp <= 0 || requestBody.StateRoot == "" {
+					n.log.Error("start, end timestamp and state root must not be nil or negative")
+					RpcResponse := tdtypes.NewRPCErrorResponse(req.ID, 201, "failed", "start, end timestamp and state root must not be nil or negative")
 					if err := n.wsClient.SendMsg(RpcResponse); err != nil {
 						n.log.Error("failed to send msg to manager", "err", err)
 					}
@@ -278,7 +312,10 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 			}
 
 			maxSignStateRoot, err := n.getMaxSignStateRoot(requestBody)
-			if maxSignStateRoot != requestBody.StateRoot {
+			if err != nil {
+				n.log.Error("failed to get max sign state root", "err", err)
+			}
+			if maxSignStateRoot != requestBody.StateRoot || err != nil {
 				signResponse := types.SignMsgResponse{
 					G2Point:         nil,
 					Signature:       nil,
@@ -297,7 +334,7 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 					return nil
 				}
 			} else {
-				bSign, err = n.SignMessage(requestBody)
+				bSign = n.SignMessage(requestBody)
 				if bSign != nil {
 					signResponse := types.SignMsgResponse{
 						G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
@@ -340,50 +377,24 @@ func (n *Node) handleSign(resId tdtypes.JSONRPCStringID, req types.NodeSignReque
 	}
 }
 
-func (n *Node) handleSymbioticSign(resId tdtypes.JSONRPCStringID, req types.NodeSignRequest) error {
-	var err error
-	var bSign *sign.Signature
-	requestBody := req.RequestBody.(types.SignMsgRequest)
-	bSign, err = n.SignMessage(requestBody)
-	if bSign != nil {
-		signResponse := types.SignMsgResponse{
-			G2Point:   n.keyPairs.GetPubKeyG2().Serialize(),
-			Signature: bSign.Serialize(),
-			Vote:      uint8(common2.AgreeVote),
-		}
-		RpcResponse := tdtypes.NewRPCSuccessResponse(resId, signResponse)
-		n.log.Info("node agree the msg, start to send response to finality manager")
-
-		err = n.wsClient.SendMsg(RpcResponse)
-		if err != nil {
-			n.log.Error("failed to sendMsg to finality manager", "err", err)
-			return err
-		} else {
-			n.log.Info("send sign response to finality manager successfully ")
-			return nil
-		}
-	}
-	return nil
-}
-
-func (n *Node) SignMessage(requestBody types.SignMsgRequest) (*sign.Signature, error) {
+func (n *Node) SignMessage(requestBody types.SignMsgRequest) *sign.Signature {
 	var bSign *sign.Signature
 	bSign = n.keyPairs.SignMessage(crypto.Keccak256Hash(common.Hex2Bytes(requestBody.StateRoot)))
 	n.log.Info("success to sign SubmitFinalitySignatureMsg", "signature", bSign.String())
 
-	return bSign, nil
+	return bSign
 }
 
 func (n *Node) checkSyncStatus(end uint64) bool {
-	babylonSynced := uint64(n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= end
+	//babylonSynced := uint64(n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= end
 	celestiaSynced := uint64(n.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) >= end
 
-	if !babylonSynced {
-		n.log.Warn("Babylon sync not completed",
-			"required", end,
-			"current", n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
-		return false
-	}
+	//if !babylonSynced {
+	//	n.log.Warn("Babylon sync not completed",
+	//		"required", end,
+	//		"current", n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
+	//	return false
+	//}
 
 	if !celestiaSynced {
 		n.log.Warn("Celestia sync not completed",
@@ -439,12 +450,18 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 			}
 
 			if symbioticFpSignCache[sfs.SignRequests.SignAddress] == "" {
-				amount, err := n.getSymbioticOperatorStakeAmount(strings.ToLower(sfs.SignRequests.SignAddress))
+				vault, err := sfp.NewSymbioticVault(operator.Vault, n.ethClient)
+				if err != nil {
+					n.log.Error("failed to get operator vault", "address", sfs.SignRequests.SignAddress, "err", err)
+					continue
+				}
+				amount, err := vault.ActiveStakeAt(cOpts, new(big.Int).SetUint64(request.StartTimestamp), nil)
 				if err != nil {
 					n.log.Error("failed to get operator stake amount", "address", sfs.SignRequests.SignAddress, "err", err)
 					continue
 				}
-				if amount.Cmp(big.NewInt(0)) > 0 {
+				minMantaStakeAmount, _ := new(big.Int).SetString(n.cfg.MinMantaStakeAmount, 10)
+				if amount.Cmp(minMantaStakeAmount) >= 0 {
 					stateRootCountCache[sfs.SignRequests.StateRoot]++
 					symbioticFpSignCache[sfs.SignRequests.SignAddress] = sfs.SignRequests.StateRoot
 				}
@@ -466,91 +483,27 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 	return maxSignStateRoot, nil
 }
 
-func (n *Node) getSymbioticOperatorStakeAmount(operator string) (*big.Int, error) {
-	query := fmt.Sprintf(`{"query":"query {\n  vaultUpdates(first: 1, where: {operator: \"%s\"}, orderBy: timestamp, orderDirection: desc) {\n    vaultTotalActiveStaked\n  }\n}"}`, operator)
-	jsonQuery := []byte(query)
-
-	req, err := http.NewRequest("POST", n.cfg.SymbioticStakeUrl, bytes.NewBuffer(jsonQuery))
-	if err != nil {
-		n.log.Error("Error creating HTTP request:", "err", err)
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, multipart/mixed")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		n.log.Error("Error sending HTTP request:", "err", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		n.log.Error("Error reading response body:", "err", err)
-		return nil, err
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		n.log.Error("Error parsing JSON response:", "err", err)
-		return nil, err
-	}
-
-	var totalStaked = big.NewInt(0)
-	if data, exists := result["data"]; exists {
-		if vaultUpdates, exists := data.(map[string]interface{})["vaultUpdates"]; exists {
-			if len(vaultUpdates.([]interface{})) > 0 {
-				vaultTotalActiveStaked := vaultUpdates.([]interface{})[0].(map[string]interface{})["vaultTotalActiveStaked"]
-				totalStaked, _ = new(big.Int).SetString(vaultTotalActiveStaked.(string), 10)
-				n.log.Info(fmt.Sprintf("operator %s vaultTotalActiveStaked: %s", operator, vaultTotalActiveStaked))
-			} else {
-				n.log.Warn(fmt.Sprintf("operator %s no vault updates found", operator))
-			}
-		} else {
-			n.log.Warn(fmt.Sprintf("operator %s no vaultUpdates field found in response data", operator))
-		}
-	} else {
-		n.log.Warn(fmt.Sprintf("operator %s no data field found in JSON response", operator))
-	}
-
-	return totalStaked, nil
-}
-
-func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, keyPairs *sign.KeyPair) (*types2.Transaction, error) {
+func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config.Config, priKey *ecdsa.PrivateKey, node string, from common.Address, keyPairs *sign.KeyPair, kmsId string, kmsClient *kms.Client, logger log.Logger) (*types2.Transaction, error) {
 	frmContract, err := finality.NewFinalityRelayerManager(common.HexToAddress(cfg.Contracts.FrmContractAddress), ethCli)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new FinalityRelayerManager contract, err: %v", err)
 	}
-	bar, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
+	barContract, err := bls.NewBLSApkRegistry(common.HexToAddress(cfg.Contracts.BarContactAddress), ethCli)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new BLSApkRegistry contract, err: %v", err)
 	}
-	fParsed, err := finality.FinalityRelayerManagerMetaData.GetAbi()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get FinalityRelayerManager contract abi, err: %v", err)
+	var topts *bind.TransactOpts
+	if cfg.EnableKms {
+		topts, err = kmssigner.NewAwsKmsTransactorWithChainIDCtx(ctx, kmsClient,
+			kmsId, big.NewInt(int64(cfg.EthChainID)))
+	} else {
+		topts, err = client.NewTransactOpts(cfg.EthChainID, priKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to new transaction option, err: %v", err)
+		}
 	}
-	rawFrmContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.FrmContractAddress), *fParsed, ethCli, ethCli,
-		ethCli,
-	)
-	bParsed, err := bls.BLSApkRegistryMetaData.GetAbi()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get BLSApkRegistry contract abi, err: %v", err)
-	}
-	rawBarContract := bind.NewBoundContract(
-		common.HexToAddress(cfg.Contracts.BarContactAddress), *bParsed, ethCli, ethCli,
-		ethCli,
-	)
+	topts.Context = ctx
 
-	topts, err := client.NewTransactOpts(ctx, cfg.EthChainID, priKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to new transaction option, err: %v", err)
-	}
-
-	nodeAddr := crypto.PubkeyToAddress(priKey.PublicKey)
 	latestBlock, err := ethCli.BlockNumber(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest block, err: %v", err)
@@ -558,10 +511,10 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 
 	cOpts := &bind.CallOpts{
 		BlockNumber: big.NewInt(int64(latestBlock)),
-		From:        nodeAddr,
+		From:        from,
 	}
 
-	msg, err := bar.GetPubkeyRegMessageHash(cOpts, nodeAddr)
+	msg, err := barContract.GetPubkeyRegMessageHash(cOpts, from)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PubkeyRegistrationMessageHash, err: %v", err)
 	}
@@ -583,42 +536,25 @@ func registerOperator(ctx context.Context, ethCli *ethclient.Client, cfg *config
 		},
 	}
 
-	regBlsTx, err := bar.RegisterBLSPublicKey(topts, nodeAddr, params, msg)
+	regBlsTx, err := barContract.RegisterBLSPublicKey(topts, from, params, msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to craft RegisterBLSPublicKey transaction, err: %v", err)
 	}
-	fRegBlsTx, err := rawBarContract.RawTransact(topts, regBlsTx.Data())
+	_, err = client.GetTransactionReceipt(ctx, ethCli, regBlsTx, time.Second*10, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to raw RegisterBLSPublicKey transaction, err: %v", err)
-	}
-	err = ethCli.SendTransaction(ctx, fRegBlsTx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send RegisterBLSPublicKey transaction, err: %v", err)
-	}
-
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegBlsTx.Hash())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, fRegBlsTx.Hash().String())
+		return nil, fmt.Errorf("failed to get RegisterBLSPublicKey transaction receipt, err: %v, tx_hash: %v", err, regBlsTx.Hash().String())
 	}
 
 	regOTx, err := frmContract.RegisterOperator(topts, node)
 	if err != nil {
 		return nil, fmt.Errorf("failed to craft RegisterOperator transaction, err: %v", err)
 	}
-	fRegOTx, err := rawFrmContract.RawTransact(topts, regOTx.Data())
+	_, err = client.GetTransactionReceipt(ctx, ethCli, regOTx, time.Second*10, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to raw RegisterOperator transaction, err: %v", err)
-	}
-	err = ethCli.SendTransaction(ctx, fRegOTx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send RegisterOperator transaction, err: %v", err)
-	}
-	_, err = client.GetTransactionReceipt(ctx, ethCli, fRegOTx.Hash())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get RegisterOperator transaction receipt, err: %v, tx_hash: %v", err, fRegOTx.Hash().String())
+		return nil, fmt.Errorf("failed to get RegisterOperator transaction receipt, err: %v, tx_hash: %v", err, regOTx.Hash().String())
 	}
 
-	return fRegOTx, nil
+	return regOTx, nil
 }
 
 func (n *Node) startMetricsServer() error {

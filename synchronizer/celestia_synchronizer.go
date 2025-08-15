@@ -23,20 +23,17 @@ import (
 )
 
 type CelestiaSynchronizer struct {
-	client            *client.Client
-	db                *store.Storage
-	headers           []*header.ExtendedHeader
-	LatestHeader      *header.ExtendedHeader
-	HeaderTraversal   *node.CelestiaHeaderTraversal
-	blockStep         uint64
-	startHeight       *big.Int
-	confirmationDepth *big.Int
-	resourceCtx       context.Context
-	resourceCancel    context.CancelFunc
-	tasks             tasks.Group
-	log               log.Logger
-	namespace         share.Namespace
-	metrics           metrics.Metricer
+	client          *client.Client
+	db              *store.Storage
+	headers         []*header.ExtendedHeader
+	LatestHeader    *header.ExtendedHeader
+	HeaderTraversal *node.CelestiaHeaderTraversal
+	blockStep       uint64
+	tasks           tasks.Group
+	log             log.Logger
+	namespace       share.Namespace
+	metrics         metrics.Metricer
+	tickerSyncer    *time.Ticker
 }
 
 func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.Storage, shutdown context.CancelCauseFunc, logger log.Logger, authToken string, metricer metrics.Metricer) (*CelestiaSynchronizer, error) {
@@ -67,34 +64,35 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 		logger.Info("celestia: sync detected last indexed block", "number", dbLatestHeader)
 		header, err := cli.Header.GetByHeight(ctx, dbLatestHeader)
 		if err != nil {
-			logger.Error("failed to get celestia header", "height", dbLatestHeader)
+			logger.Error("failed to get celestia header by latest db header", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch celestia starting block header by latest db header: %w", err)
 		}
 		fromHeader = header
 	} else if cfg.CelestiaStartingHeight > 0 {
 		logger.Info("celestia: no sync indexed state starting from supplied celestia height", "height", cfg.CelestiaStartingHeight)
 		header, err := cli.Header.GetByHeight(ctx, uint64(cfg.CelestiaStartingHeight))
 		if err != nil {
-			return nil, fmt.Errorf("could not fetch celestia starting block header: %w", err)
+			logger.Error("failed to get celestia header by cfg height", "height", dbLatestHeader)
+			return nil, fmt.Errorf("could not fetch celestia starting block header by cfg height: %w", err)
 		}
 		fromHeader = header
 	} else {
 		logger.Info("no celestia block indexed state")
 	}
 
-	headerTraversal := node.NewCelestiaHeaderTraversal(cli, fromHeader, big.NewInt(0))
+	// The probability of 1 blocks being reorganized is very low for celestia
+	headerTraversal := node.NewCelestiaHeaderTraversal(cli, fromHeader, big.NewInt(1))
 
-	resCtx, resCancel := context.WithCancel(context.Background())
 	return &CelestiaSynchronizer{
 		client:          cli,
 		blockStep:       cfg.CelestiaBlockStep,
 		HeaderTraversal: headerTraversal,
 		LatestHeader:    fromHeader,
 		db:              db,
-		resourceCtx:     resCtx,
-		resourceCancel:  resCancel,
 		log:             logger,
 		namespace:       namespace,
 		metrics:         metricer,
+		tickerSyncer:    time.NewTicker(time.Second * 2),
 		tasks: tasks.Group{HandleCrit: func(err error) {
 			shutdown(fmt.Errorf("critical error in celestia synchronizer: %w", err))
 		}},
@@ -102,9 +100,8 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 }
 
 func (syncer *CelestiaSynchronizer) Start() error {
-	tickerSyncer := time.NewTicker(time.Second * 2)
 	syncer.tasks.Go(func() error {
-		for range tickerSyncer.C {
+		for range syncer.tickerSyncer.C {
 			done := syncer.metrics.RecordCelestiaInterval()
 			if len(syncer.headers) > 0 {
 				syncer.log.Info("celestia: retrying previous batch")
@@ -153,7 +150,7 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 		}
 		cHeader := store.CelestiaBlockHeader{
 			Hash:       headers[i].Hash(),
-			ParentHash: headers[i].LastResultsHash.Bytes(),
+			ParentHash: headers[i].LastHeader(),
 			Number:     headers[i].Height(),
 			Timestamp:  headers[i].Time().Unix(),
 		}
@@ -183,6 +180,9 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 				syncer.log.Info("celestia: success to store symbiotic fp blob data", "height", cHeader.Number, "timestamp", cHeader.Timestamp)
 			}
 		}
+		if err = syncer.db.SetStakeDetailsByTimestamp(uint64(headers[i].Time().Unix())); err != nil {
+			return err
+		}
 	}
 
 	if err := syncer.db.SetCelestiaBlockHeaders(blockHeaders); err != nil {
@@ -198,6 +198,7 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 	return nil
 }
 
-func (syncer *CelestiaSynchronizer) Close() error {
-	return nil
+func (syncer *CelestiaSynchronizer) Close() {
+	syncer.client.Close()
+	syncer.tickerSyncer.Stop()
 }

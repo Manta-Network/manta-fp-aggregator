@@ -29,6 +29,8 @@ var (
 	DefaultPubKeyFilename     = "fn_bls.pub"
 	DefaultPrivKeyFilename    = "fn_bls.piv"
 	CelestiaAuthTokenFlagName = "auth-token"
+	KmsIdFlagName             = "kms.id"
+	KmsRegionFlagName         = "kms.region"
 )
 
 var (
@@ -54,11 +56,21 @@ var (
 		Usage:   "the auth token of celestia node",
 		EnvVars: []string{"FP_AGGREGATOR_AUTH_TOKEN"},
 	}
+	KmsIdFlag = &cli.StringFlag{
+		Name:    KmsIdFlagName,
+		Usage:   "KMS ID the client will reference",
+		EnvVars: []string{"FP_AGGREGATOR_KMS_ID"},
+	}
+	KmsRegion = &cli.StringFlag{
+		Name:    KmsRegionFlagName,
+		Usage:   "AWS region the client will connect to",
+		EnvVars: []string{"FP_AGGREGATOR_KMS_REGION"},
+	}
 )
 
 func newCli(GitCommit string, GitDate string) *cli.App {
-	nodeFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, KeyPairFlag, CelestiaAuthTokenFlag}
-	managerFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, CelestiaAuthTokenFlag}
+	nodeFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, KeyPairFlag, CelestiaAuthTokenFlag, KmsIdFlag, KmsRegion}
+	managerFlags := []cli.Flag{ConfigFlag, PrivateKeyFlag, CelestiaAuthTokenFlag, KmsIdFlag, KmsRegion}
 	peerIDFlags := []cli.Flag{PrivateKeyFlag}
 	return &cli.App{
 		Version:              VersionWithCommit(GitCommit, GitDate),
@@ -105,15 +117,30 @@ func runNode(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecyc
 		return nil, err
 	}
 
+	var kmsId string
+	var kmsRegion string
 	var privKey *ecdsa.PrivateKey
 	var shouldRegister bool
-	if ctx.IsSet(PrivateKeyFlagName) {
-		privKey, err = crypto.HexToECDSA(ctx.String(PrivateKeyFlagName))
-		if err != nil {
-			return nil, err
+	if cfg.EnableKms {
+		if ctx.IsSet(KmsIdFlagName) {
+			kmsId = ctx.String(KmsIdFlagName)
+		} else {
+			return nil, errors.New("need to config kms id")
+		}
+		if ctx.IsSet(KmsRegionFlagName) {
+			kmsRegion = ctx.String(KmsRegionFlagName)
+		} else {
+			return nil, errors.New("need to config kms region")
 		}
 	} else {
-		return nil, errors.New("need to config private key")
+		if ctx.IsSet(PrivateKeyFlagName) {
+			privKey, err = crypto.HexToECDSA(ctx.String(PrivateKeyFlagName))
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, errors.New("need to config private key")
+		}
 	}
 
 	var authToken string
@@ -167,7 +194,7 @@ func runNode(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecyc
 		return nil, err
 	}
 
-	return node.NewFinalityNode(ctx.Context, db, privKey, keyPairs, shouldRegister, cfg, logger, shutdown, authToken)
+	return node.NewFinalityNode(ctx.Context, db, privKey, keyPairs, shouldRegister, cfg, logger, shutdown, authToken, kmsId, kmsRegion)
 }
 
 func runManager(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Lifecycle, error) {
@@ -180,14 +207,29 @@ func runManager(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Life
 		return nil, err
 	}
 
+	var kmsId string
+	var kmsRegion string
 	var privKey *ecdsa.PrivateKey
-	if ctx.IsSet(PrivateKeyFlagName) {
-		privKey, err = crypto.HexToECDSA(ctx.String(PrivateKeyFlagName))
-		if err != nil {
-			return nil, err
+	if cfg.EnableKms {
+		if ctx.IsSet(KmsIdFlagName) {
+			kmsId = ctx.String(KmsIdFlagName)
+		} else {
+			return nil, errors.New("need to config kms id")
+		}
+		if ctx.IsSet(KmsRegionFlagName) {
+			kmsRegion = ctx.String(KmsRegionFlagName)
+		} else {
+			return nil, errors.New("need to config kms region")
 		}
 	} else {
-		return nil, errors.New("need to config private key")
+		if ctx.IsSet(PrivateKeyFlagName) {
+			privKey, err = crypto.HexToECDSA(ctx.String(PrivateKeyFlagName))
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, errors.New("need to config private key")
+		}
 	}
 
 	var authToken string
@@ -207,7 +249,7 @@ func runManager(ctx *cli.Context, shutdown context.CancelCauseFunc) (cliapp.Life
 		return nil, err
 	}
 
-	return manager.NewFinalityManager(ctx.Context, db, wsServer, cfg, shutdown, logger, privKey, authToken)
+	return manager.NewFinalityManager(ctx.Context, db, wsServer, cfg, shutdown, logger, privKey, authToken, kmsId, kmsRegion)
 }
 
 func runParsePeerID(ctx *cli.Context) error {

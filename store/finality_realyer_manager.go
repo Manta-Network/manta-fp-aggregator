@@ -93,6 +93,25 @@ func (s *Storage) GetActiveMember() (NodeMembers, error) {
 	return nM, nil
 }
 
+func (s *Storage) DeleteUnusedMembers(activeMembers []string) error {
+	aMB, err := s.db.Get(getActiveMemberKey(), nil)
+	if err != nil {
+		return err
+	}
+
+	var nM NodeMembers
+	if err = json.Unmarshal(aMB, &nM); err != nil {
+		return err
+	}
+
+	nM.Members = activeMembers
+	nMB, err := json.Marshal(nM)
+	if err != nil {
+		return err
+	}
+	return s.db.Put(getActiveMemberKey(), nMB, nil)
+}
+
 func contains(slice []string, str string) bool {
 	for _, s := range slice {
 		if s == str {

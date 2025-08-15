@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,8 +13,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/rpc/jsonrpc/types"
-
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
@@ -178,11 +175,6 @@ func (wm *WebsocketManager) WebsocketHandler(w http.ResponseWriter, r *http.Requ
 		wm.logger.Error("Failed to establish connection", "err", fmt.Errorf("invalid pubKey in header, expected length %d, actual length %d", publicKeyLength, len(pubKey)))
 		return
 	}
-	sig := r.Header.Get("sig")
-	if len(sig) < messageSignatureLength {
-		wm.logger.Error("Failed to establish connection", "err", fmt.Errorf("failed to establish connection, expected length %d, actual length %d", messageSignatureLength, len(sig)))
-		return
-	}
 	timeStr := r.Header.Get("time")
 	if len(timeStr) == 0 {
 		wm.logger.Error("Failed to establish connection", "err", fmt.Errorf("failed to establish connection, expected length %d, actual length %d", 0, len(timeStr)))
@@ -195,22 +187,6 @@ func (wm *WebsocketManager) WebsocketHandler(w http.ResponseWriter, r *http.Requ
 	}
 	if time.Now().Unix()-timeInt64 > legalTimeStampPeriod {
 		wm.logger.Error("illegal timestamp", "err", errors.New("reject because illegal timestamp"))
-		return
-	}
-
-	pubKeyBytes, pubErr := hex.DecodeString(pubKey)
-	sigBytes, sigErr := hex.DecodeString(sig)
-	if pubErr != nil || sigErr != nil {
-		wm.logger.Error("hex decode error for pubkey or sig", "err", err)
-		return
-	}
-	if len(sigBytes) < 64 {
-		wm.logger.Error(fmt.Sprintf("invalid sigBytes, expected length is no less than 64, actual length is %d", len(sigBytes)))
-		return
-	}
-	digestBz := crypto.Keccak256Hash([]byte(timeStr)).Bytes()
-	if !crypto.VerifySignature(pubKeyBytes, digestBz, sigBytes[:64]) {
-		wm.logger.Error("illegal signature", "publicKey", pubKey, "time", timeStr, "signature", sig)
 		return
 	}
 
