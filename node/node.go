@@ -119,30 +119,30 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	metricer := metrics.NewMetrics(registry)
 
 	txMsgChan := make(chan store.TxMessage, 100)
-	//babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
-	//if err != nil {
-	//	return nil, err
-	//}
+	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
+	if err != nil {
+		return nil, err
+	}
 	celestiaSynchronizer, err := synchronizer.NewCelestiaSynchronizer(ctx, cfg, db, shutdown, logger, authToken, metricer)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Node{
-		wg:              sync.WaitGroup{},
-		done:            make(chan struct{}),
-		log:             logger,
-		db:              db,
-		privateKey:      privKey,
-		from:            from,
-		ethClient:       ethCli,
-		cfg:             cfg,
-		ctx:             ctx,
-		msmContract:     msmContract,
-		wsClient:        wsClient,
-		keyPairs:        keyPairs,
-		signRequestChan: make(chan tdtypes.RPCRequest, 100),
-		//babylonSynchronizer:  babylonSynchronizer,
+		wg:                   sync.WaitGroup{},
+		done:                 make(chan struct{}),
+		log:                  logger,
+		db:                   db,
+		privateKey:           privKey,
+		from:                 from,
+		ethClient:            ethCli,
+		cfg:                  cfg,
+		ctx:                  ctx,
+		msmContract:          msmContract,
+		wsClient:             wsClient,
+		keyPairs:             keyPairs,
+		signRequestChan:      make(chan tdtypes.RPCRequest, 100),
+		babylonSynchronizer:  babylonSynchronizer,
 		celestiaSynchronizer: celestiaSynchronizer,
 		txMsgChan:            txMsgChan,
 		metricsRegistry:      registry,
@@ -170,9 +170,9 @@ func (n *Node) Start(ctx context.Context) error {
 	n.wg.Add(3)
 	go n.ProcessMessage()
 	go n.sign()
-	//go n.work()
+	go n.work()
 
-	//go n.babylonSynchronizer.Start()
+	go n.babylonSynchronizer.Start()
 	go n.celestiaSynchronizer.Start()
 
 	if err := n.startMetricsServer(); err != nil {
@@ -185,7 +185,7 @@ func (n *Node) Start(ctx context.Context) error {
 func (n *Node) Stop(ctx context.Context) error {
 	close(n.done)
 	n.wg.Wait()
-	//n.babylonSynchronizer.Close()
+	n.babylonSynchronizer.Close()
 	n.celestiaSynchronizer.Close()
 	if err := n.db.Close(); err != nil {
 		n.log.Error("failed to close db server", "err", err)
@@ -386,15 +386,15 @@ func (n *Node) SignMessage(requestBody types.SignMsgRequest) *sign.Signature {
 }
 
 func (n *Node) checkSyncStatus(end uint64) bool {
-	//babylonSynced := uint64(n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= end
+	babylonSynced := uint64(n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix()) >= end
 	celestiaSynced := uint64(n.celestiaSynchronizer.HeaderTraversal.LastTraversedHeader().Time().Unix()) >= end
 
-	//if !babylonSynced {
-	//	n.log.Warn("Babylon sync not completed",
-	//		"required", end,
-	//		"current", n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
-	//	return false
-	//}
+	if !babylonSynced {
+		n.log.Warn("Babylon sync not completed",
+			"required", end,
+			"current", n.babylonSynchronizer.HeaderTraversal.LastTraversedHeader().Time.Unix())
+		return false
+	}
 
 	if !celestiaSynced {
 		n.log.Warn("Celestia sync not completed",
@@ -422,7 +422,7 @@ func (n *Node) getMaxSignStateRoot(request types.SignMsgRequest) (string, error)
 	}
 
 	for _, bfs := range babylonFinalitySignatures {
-		if bfs.SubmitFinalitySignature.L2BlockNumber == request.L2BlockNumber {
+		if bfs.SubmitFinalitySignature.Height == request.L2BlockNumber {
 			stateRootCountCache[bfs.SubmitFinalitySignature.StateRoot]++
 		}
 	}
