@@ -2,6 +2,8 @@ module github.com/Manta-Network/manta-fp-aggregator
 
 go 1.23.4
 
+replace github.com/celestiaorg/celestia-openrpc v0.5.0 => github.com/eniac-x-labs/celestia-openrpc v0.7.2
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
