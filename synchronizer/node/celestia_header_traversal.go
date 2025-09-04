@@ -50,14 +50,16 @@ func (f *CelestiaHeaderTraversal) NextHeaders(maxSize uint64) ([]*header.Extende
 	}
 	log.Info("celestia header traversal db latest header: ", "height", latestHeader.Height())
 
-	endHeight := new(big.Int).Sub(big.NewInt(int64(latestHeader.Height())), f.blockConfirmationDepth)
+	latestHeaderB, _ := new(big.Int).SetString(latestHeader.Height(), 10)
+	endHeight := new(big.Int).Sub(latestHeaderB, f.blockConfirmationDepth)
 	if endHeight.Sign() < 0 {
 		// No blocks with the provided confirmation depth available
 		return nil, nil
 	}
 
 	if f.lastTraversedHeader != nil {
-		cmp := big.NewInt(int64(f.lastTraversedHeader.Height())).Cmp(endHeight)
+		lastTraversedHeaderB, _ := new(big.Int).SetString(f.lastTraversedHeader.Height(), 10)
+		cmp := lastTraversedHeaderB.Cmp(endHeight)
 		if cmp == 0 {
 			return nil, nil
 		} else if cmp > 0 {
@@ -67,7 +69,8 @@ func (f *CelestiaHeaderTraversal) NextHeaders(maxSize uint64) ([]*header.Extende
 
 	nextHeight := bigint.Zero
 	if f.lastTraversedHeader != nil {
-		nextHeight = new(big.Int).Add(big.NewInt(int64(f.lastTraversedHeader.Height())), bigint.One)
+		lastTraversedHeaderB, _ := new(big.Int).SetString(f.lastTraversedHeader.Height(), 10)
+		nextHeight = new(big.Int).Add(lastTraversedHeaderB, bigint.One)
 	}
 
 	endHeight = bigint.Clamp(nextHeight, endHeight, maxSize)
