@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -138,7 +139,7 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 	firstHeader, lastHeader := headers[0], headers[len(headers)-1]
 	syncer.log.Info("celestia: extracting batch", "size", len(headers), "startBlock", firstHeader.Height(), "endBlock", lastHeader.Height())
 
-	headerMap := make(map[uint64]*header.ExtendedHeader, len(headers))
+	headerMap := make(map[string]*header.ExtendedHeader, len(headers))
 	for i := range headers {
 		header := headers[i]
 		headerMap[header.Height()] = header
@@ -148,10 +149,11 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 		if headers[i].Hash() == nil {
 			continue
 		}
+		height, _ := strconv.ParseUint(headers[i].Height(), 10, 64)
 		cHeader := store.CelestiaBlockHeader{
 			Hash:       headers[i].Hash(),
 			ParentHash: headers[i].LastHeader(),
-			Number:     headers[i].Height(),
+			Number:     height,
 			Timestamp:  headers[i].Time().Unix(),
 		}
 		blockHeaders = append(blockHeaders, cHeader)
@@ -185,14 +187,16 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 		}
 	}
 
+	lHeight, _ := strconv.ParseUint(lastHeader.Height(), 10, 64)
+
 	if err := syncer.db.SetCelestiaBlockHeaders(blockHeaders); err != nil {
 		return err
 	}
-	if err := syncer.db.UpdateCelestiaHeight(lastHeader.Height()); err != nil {
+	if err := syncer.db.UpdateCelestiaHeight(lHeight); err != nil {
 		return err
 	}
 
-	syncer.metrics.RecordLatestCelestiaBlock(lastHeader.Height())
+	syncer.metrics.RecordLatestCelestiaBlock(lHeight)
 	syncer.metrics.RecordCelestiaIndexedHeaders(len(blockHeaders))
 
 	return nil
