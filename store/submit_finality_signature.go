@@ -48,14 +48,15 @@ type BatchSubmitFinalitySignatures struct {
 }
 
 type SubmitFinalitySignatureMsgParams struct {
-	FpPubkeyHex   string `json:"fp_pubkey_hex"`
-	L1BlockNumber uint64 `json:"l1_block_number"`
-	L1BlockHash   string `json:"l1_block_hash"`
-	L2BlockNumber uint64 `json:"l2_block_number"`
-	PubRand       []byte `json:"pub_rand"`
-	Proof         Proof  `json:"proof"`
-	StateRoot     string `json:"state_root"`
-	Signature     []byte `json:"signature"`
+	FpPubkeyHex    string `json:"fp_pubkey_hex"`
+	L1BlockNumber  uint64 `json:"l1_block_number"`
+	L1BlockHashHex string `json:"l1_block_hash_hex"`
+	Height         uint64 `json:"height"`
+	PubRand        []byte `json:"pub_rand"`
+	Proof          Proof  `json:"proof"`
+	BlockHash      []byte `json:"block_hash"`
+	StateRoot      string `json:"state_root"`
+	Signature      []byte `json:"signature"`
 }
 
 type Proof struct {
