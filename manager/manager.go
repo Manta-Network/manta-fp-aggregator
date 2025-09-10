@@ -147,11 +147,6 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	}
 
 	nodeMemberS := strings.Split(cfg.Manager.NodeMembers, ",")
-	for _, nodeMember := range nodeMemberS {
-		if err := db.SetActiveMember(nodeMember); err != nil {
-			return nil, fmt.Errorf("failed to set node member, err: %v", err)
-		}
-	}
 
 	registry := metrics.NewRegistry()
 	metricer := metrics.NewMetrics(registry)
