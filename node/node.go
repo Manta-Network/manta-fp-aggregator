@@ -171,7 +171,11 @@ func (n *Node) Start(ctx context.Context) error {
 	go n.ProcessMessage()
 	go n.sign()
 	go n.work()
-
+	err := n.db.ResetBabylonScanHeight(uint64(n.cfg.BabylonStartingHeight))
+	if err != nil {
+		n.log.Error("failed to reset babylon scan height", "err", err)
+		return err
+	}
 	go n.babylonSynchronizer.Start()
 	go n.celestiaSynchronizer.Start()
 
