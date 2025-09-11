@@ -118,6 +118,11 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	registry := metrics.NewRegistry()
 	metricer := metrics.NewMetrics(registry)
 
+	err = db.ResetBabylonScanHeight(uint64(cfg.BabylonStartingHeight))
+	if err != nil {
+		return nil, err
+	}
+
 	txMsgChan := make(chan store.TxMessage, 100)
 	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
 	if err != nil {
@@ -171,11 +176,7 @@ func (n *Node) Start(ctx context.Context) error {
 	go n.ProcessMessage()
 	go n.sign()
 	go n.work()
-	err := n.db.ResetBabylonScanHeight(uint64(n.cfg.BabylonStartingHeight))
-	if err != nil {
-		n.log.Error("failed to reset babylon scan height", "err", err)
-		return err
-	}
+
 	go n.babylonSynchronizer.Start()
 	go n.celestiaSynchronizer.Start()
 
