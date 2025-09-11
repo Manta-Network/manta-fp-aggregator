@@ -151,11 +151,6 @@ func NewFinalityManager(ctx context.Context, db *store.Storage, wsServer server.
 	registry := metrics.NewRegistry()
 	metricer := metrics.NewMetrics(registry)
 
-	err = db.ResetBabylonScanHeight(uint64(cfg.BabylonStartingHeight))
-	if err != nil {
-		return nil, err
-	}
-
 	txMsgChan := make(chan store.TxMessage, cfg.Manager.MaxBabylonOperatorNum)
 	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
 	if err != nil {
