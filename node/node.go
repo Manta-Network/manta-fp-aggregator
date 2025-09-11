@@ -118,11 +118,6 @@ func NewFinalityNode(ctx context.Context, db *store.Storage, privKey *ecdsa.Priv
 	registry := metrics.NewRegistry()
 	metricer := metrics.NewMetrics(registry)
 
-	err = db.ResetBabylonScanHeight(uint64(cfg.BabylonStartingHeight))
-	if err != nil {
-		return nil, err
-	}
-
 	txMsgChan := make(chan store.TxMessage, 100)
 	babylonSynchronizer, err := synchronizer.NewBabylonSynchronizer(ctx, cfg, db, shutdown, logger, txMsgChan, metricer)
 	if err != nil {
