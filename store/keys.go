@@ -79,7 +79,7 @@ func getSelectiveSlashingEvidenceKey(txHash []byte) []byte {
 }
 
 func getBTCDelegateAmountKey() []byte {
-	return append(BTCDelegateAmountKeyPrefix)
+	return BTCDelegateAmountKeyPrefix
 }
 
 func getBabylonDelegationKey(btcTx []byte) []byte {

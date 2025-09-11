@@ -210,6 +210,12 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 
+	err = m.db.ResetBabylonScanHeight(uint64(m.cfg.BabylonStartingHeight))
+	if err != nil {
+		m.log.Error("failed to reset babylon scan height")
+		return err
+	}
+
 	registry := router.NewRegistry(m, m.db)
 	r := gin.Default()
 	registry.Register(r)
