@@ -17,6 +17,10 @@ import (
 )
 
 func (m *Manager) sign(ctx types.Context, request interface{}, method types.Method) (types.SignResult, error) {
+	return m.signWithContext(context.Background(), ctx, request, method)
+}
+
+func (m *Manager) signWithContext(parentCtx context.Context, ctx types.Context, request interface{}, method types.Method) (types.SignResult, error) {
 	respChan := make(chan server.ResponseMsg)
 	stopChan := make(chan struct{})
 
@@ -41,10 +45,14 @@ func (m *Manager) sign(ctx types.Context, request interface{}, method types.Meth
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
-		cctx, cancel := context.WithTimeout(context.Background(), m.cfg.Manager.SignTimeout)
+		signTimeout := m.cfg.Manager.SignTimeout
+		if signTimeout > 0 {
+			cctx, cancel := context.WithTimeout(parentCtx, signTimeout)
+			defer cancel()
+			parentCtx = cctx
+		}
 		defer func() {
 			m.log.Info("exit signing process")
-			cancel()
 			close(stopChan)
 			wg.Done()
 		}()
@@ -102,7 +110,7 @@ func (m *Manager) sign(ctx types.Context, request interface{}, method types.Meth
 					}
 				}()
 
-			case <-cctx.Done():
+			case <-parentCtx.Done():
 				m.log.Warn("wait for signature timeout", "requestId", ctx.RequestId(), "received responses len", respNumber)
 				return
 			default:
