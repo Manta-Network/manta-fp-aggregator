@@ -258,6 +258,12 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 
+	m.balanceMetricer = m.metrics.StartCelestiaBalanceMetrics(m.log, m.celestiaSynchronizer.Client)
+	if err := m.startMetricsServer(); err != nil {
+		m.log.Error("failed to start metrics Server", "err", err)
+		return err
+	}
+
 	go m.babylonSynchronizer.Start()
 	go m.ethSynchronizer.Start()
 	go m.ethEventProcess.Start()
@@ -265,6 +271,11 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	m.wg.Add(1)
 	go m.work()
+
+	// 启动tickerController健康检查
+	m.wg.Add(1)
+	go m.tickerControllerHealthCheck()
+
 	m.log.Info("manager is starting......", "address", m.from.String())
 	return nil
 }
@@ -395,8 +406,20 @@ func (m *Manager) work() {
 			done := make(chan struct{}, 1)
 			errCh := make(chan error, 1)
 
+			processingComplete := false
+			defer func() {
+				if !processingComplete {
+					m.log.Warn("processStateRoot goroutine did not complete properly, resetting state")
+					m.resetState(op)
+				}
+			}()
+
 			go func() {
 				defer func() {
+					if r := recover(); r != nil {
+						m.log.Error("processStateRoot panic recovered", "panic", r)
+						errCh <- fmt.Errorf("processStateRoot panic: %v", r)
+					}
 					close(done)
 					opCancel()
 				}()
@@ -412,14 +435,17 @@ func (m *Manager) work() {
 			select {
 			case <-done:
 				m.log.Info("success to process state root", "batch_id", m.batchId)
+				processingComplete = true
 				continue
 			case err := <-errCh:
 				m.log.Error("failed to process state root", "err", err)
 				m.resetState(op)
+				processingComplete = true
 				continue
 			case <-opCtx.Done():
 				m.log.Warn("process state root timeout, skip", "state_root", op.StateRoot)
 				m.resetState(op)
+				processingComplete = true
 				continue
 			}
 
@@ -462,6 +488,9 @@ func (m *Manager) resetState(op *store.OutputProposed) {
 }
 
 func (m *Manager) processStateRoot(op *store.OutputProposed) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(m.outputSubmissionInterval-5)*time.Second)
+	defer cancel()
+
 	voteStateRoot, err := m.getMaxSignStateRoot(op.Timestamp.Uint64())
 	m.log.Info("success to count fp signatures", "result", voteStateRoot)
 	if err != nil {
@@ -485,7 +514,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		return errors.New("no fp signature, skip this state root")
 	}
 
-	res, err := m.SignMsgBatch(request)
+	res, err := m.SignMsgBatchWithContext(ctx, request)
 	if errors.Is(err, errNotEnoughSignNode) || errors.Is(err, errNotEnoughVoteNode) {
 		m.log.Error("not enough available nodes to sign or not enough available nodes to vote")
 		return err
@@ -503,7 +532,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 			Y: v.Y.BigInt(new(big.Int)),
 		})
 	}
-	err = m.getLatestConfirmBatchId()
+	err = m.getLatestConfirmBatchIdWithContext(ctx)
 	if err != nil {
 		m.log.Error("failed to get latest confirm batch id", "err", err)
 		return err
@@ -518,7 +547,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 
 	var opts *bind.TransactOpts
 	if m.cfg.EnableKms {
-		opts, err = kmssigner.NewAwsKmsTransactorWithChainIDCtx(context.Background(), m.kmsClient,
+		opts, err = kmssigner.NewAwsKmsTransactorWithChainIDCtx(ctx, m.kmsClient,
 			m.kmsId, big.NewInt(int64(m.ethChainID)))
 		if err != nil {
 			m.log.Error("failed to new transact opts by kms", "err", err)
@@ -531,7 +560,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 			return err
 		}
 	}
-	opts.Context = context.Background()
+	opts.Context = ctx
 
 	finalityBatch := finality.IFinalityRelayerManagerFinalityBatch{
 		StateRoot:     common.HexToHash(voteStateRoot.StateRoot),
@@ -574,7 +603,7 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 		return err
 	}
 
-	receipt, err := client.GetTransactionReceipt(context.Background(), m.ethClient, tx, time.Second*10, m.log)
+	receipt, err := client.GetTransactionReceipt(ctx, m.ethClient, tx, time.Second*30, m.log)
 	if err != nil {
 		m.log.Error("failed to get verify finality transaction receipt", "err", err)
 		m.metrics.RecordGetReceiptError(tx.Hash().String())
@@ -599,6 +628,10 @@ func (m *Manager) processStateRoot(op *store.OutputProposed) error {
 }
 
 func (m *Manager) SignMsgBatch(request types.SignMsgRequest) (*types.SignResult, error) {
+	return m.SignMsgBatchWithContext(context.Background(), request)
+}
+
+func (m *Manager) SignMsgBatchWithContext(ctx context.Context, request types.SignMsgRequest) (*types.SignResult, error) {
 	m.log.Info("received sign request", "sign_type", request)
 
 	activeMember, err := m.db.GetActiveMember()
@@ -612,13 +645,13 @@ func (m *Manager) SignMsgBatch(request types.SignMsgRequest) (*types.SignResult,
 		return nil, errNotEnoughSignNode
 	}
 
-	ctx := types.NewContext().
+	signCtx := types.NewContext().
 		WithAvailableNodes(availableNodes).
 		WithRequestId(randomRequestId())
 
 	var resp types.SignResult
 	var signErr error
-	resp, signErr = m.sign(ctx, request, types.SignMsgBatch)
+	resp, signErr = m.signWithContext(ctx, signCtx, request, types.SignMsgBatch)
 	if signErr != nil {
 		return nil, signErr
 	}
@@ -803,12 +836,17 @@ func (m *Manager) getMaxSignStateRoot(end uint64) (*types.VoteStateRoot, error) 
 }
 
 func (m *Manager) getLatestConfirmBatchId() error {
-	latestBlock, err := m.ethClient.BlockNumber(context.Background())
+	return m.getLatestConfirmBatchIdWithContext(context.Background())
+}
+
+func (m *Manager) getLatestConfirmBatchIdWithContext(ctx context.Context) error {
+	latestBlock, err := m.ethClient.BlockNumber(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get latest block, err: %v", err)
 	}
 
 	cOpts := &bind.CallOpts{
+		Context:     ctx,
 		BlockNumber: big.NewInt(int64(latestBlock)),
 		From:        m.from,
 	}
@@ -821,6 +859,37 @@ func (m *Manager) getLatestConfirmBatchId() error {
 	m.batchId = id.Uint64()
 
 	return nil
+}
+
+func (m *Manager) tickerControllerHealthCheck() {
+	defer m.wg.Done()
+
+	healthTicker := time.NewTicker(30 * time.Second)
+	defer healthTicker.Stop()
+
+	var lastCheckTime time.Time
+	var lastTickerControllerState bool
+
+	for {
+		select {
+		case <-healthTicker.C:
+			m.mu.Lock()
+			currentState := m.tickerController
+			currentTime := time.Now()
+			m.mu.Unlock()
+
+			if !currentState && !lastTickerControllerState &&
+				!lastCheckTime.IsZero() && currentTime.Sub(lastCheckTime) > 5*time.Minute {
+				m.log.Warn("tickerController has been false for more than 5 minutes, this might indicate a stuck process")
+			}
+
+			lastCheckTime = currentTime
+			lastTickerControllerState = currentState
+
+		case <-m.done:
+			return
+		}
+	}
 }
 
 func (m *Manager) startMetricsServer() error {

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	client "github.com/celestiaorg/celestia-openrpc"
 	"github.com/ethereum/go-ethereum/params"
 	"math/big"
 	"time"
@@ -34,6 +35,33 @@ func LaunchBalanceMetrics(log log.Logger, r *prometheus.Registry, ns string, cli
 			return
 		}
 		bal := WeiToEther(bigBal)
+		balanceGuage.Set(bal)
+	}, func() error {
+		log.Info("balance metrics shutting down")
+		return nil
+	}, 10*time.Second)
+}
+
+func LaunchCelestiaBalanceMetrics(log log.Logger, r *prometheus.Registry, ns string, client *client.Client) *clock.LoopFn {
+	account, err := client.State.AccountAddress(context.Background())
+	if err != nil {
+		log.Warn("failed to get celestia account", "err", err)
+	}
+
+	balanceGuage := promauto.With(r).NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "celestia balance",
+		Help:      "celestia balance of account " + account.String(),
+	})
+	return clock.NewLoopFn(clock.SystemClock, func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+		defer cancel()
+		bigBal, err := client.State.BalanceForAddress(ctx, account)
+		if err != nil {
+			log.Warn("failed to get balance of account", "err", err, "address", account)
+			return
+		}
+		bal, _ := bigBal.Amount.BigInt().Float64()
 		balanceGuage.Set(bal)
 	}, func() error {
 		log.Info("balance metrics shutting down")
