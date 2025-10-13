@@ -258,11 +258,11 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 
-	m.balanceMetricer = m.metrics.StartCelestiaBalanceMetrics(m.log, m.celestiaSynchronizer.Client)
-	if err := m.startMetricsServer(); err != nil {
-		m.log.Error("failed to start metrics Server", "err", err)
-		return err
-	}
+	//m.balanceMetricer = m.metrics.StartCelestiaBalanceMetrics(m.log, m.celestiaSynchronizer.Client)
+	//if err := m.startMetricsServer(); err != nil {
+	//	m.log.Error("failed to start metrics Server", "err", err)
+	//	return err
+	//}
 
 	go m.babylonSynchronizer.Start()
 	go m.ethSynchronizer.Start()
