@@ -24,7 +24,7 @@ import (
 )
 
 type CelestiaSynchronizer struct {
-	client          *client.Client
+	Client          *client.Client
 	db              *store.Storage
 	headers         []*header.ExtendedHeader
 	LatestHeader    *header.ExtendedHeader
@@ -85,7 +85,7 @@ func NewCelestiaSynchronizer(ctx context.Context, cfg *config.Config, db *store.
 	headerTraversal := node.NewCelestiaHeaderTraversal(cli, fromHeader, big.NewInt(1))
 
 	return &CelestiaSynchronizer{
-		client:          cli,
+		Client:          cli,
 		blockStep:       cfg.CelestiaBlockStep,
 		HeaderTraversal: headerTraversal,
 		LatestHeader:    fromHeader,
@@ -158,7 +158,7 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 		}
 		blockHeaders = append(blockHeaders, cHeader)
 
-		blobs, err := syncer.client.Blob.GetAll(context.Background(), cHeader.Number, []share.Namespace{syncer.namespace})
+		blobs, err := syncer.Client.Blob.GetAll(context.Background(), cHeader.Number, []share.Namespace{syncer.namespace})
 		if err != nil {
 			syncer.log.Error("celestia: failed to get blob", "height", cHeader.Number)
 			continue
@@ -203,6 +203,6 @@ func (syncer *CelestiaSynchronizer) processBatch(headers []*header.ExtendedHeade
 }
 
 func (syncer *CelestiaSynchronizer) Close() {
-	syncer.client.Close()
+	syncer.Client.Close()
 	syncer.tickerSyncer.Stop()
 }

@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	client "github.com/celestiaorg/celestia-openrpc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
@@ -12,6 +13,7 @@ const Namespace = "manta_fp_aggregator"
 
 type Metricer interface {
 	StartBalanceMetrics(l log.Logger, client *ethclient.Client, account common.Address) io.Closer
+	StartCelestiaBalanceMetrics(l log.Logger, client *client.Client) io.Closer
 	RecordBabylonInterval() (done func(err error))
 	RecordCelestiaInterval() (done func(err error))
 	RecordEthInterval() (done func(err error))
@@ -178,6 +180,10 @@ func NewMetrics(registry *prometheus.Registry) Metricer {
 
 func (m *Metrics) StartBalanceMetrics(l log.Logger, client *ethclient.Client, account common.Address) io.Closer {
 	return LaunchBalanceMetrics(l, m.registry, m.ns, client, account)
+}
+
+func (m *Metrics) StartCelestiaBalanceMetrics(l log.Logger, client *client.Client) io.Closer {
+	return LaunchCelestiaBalanceMetrics(l, m.registry, m.ns, client)
 }
 
 func (m *Metrics) RecordLatestBabylonBlock(number uint64) {
